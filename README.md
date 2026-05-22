@@ -31,6 +31,34 @@ Stack update completed for backend migration:
 - `/shop` shop page
 - `/contact` contact page
 
+## Firebase Auth Setup (Legacy PHP Frontend)
+
+This setup applies to the legacy frontend in `Users/` + `Templates/`.
+
+1. Create a Firebase project and add a Web app.
+2. In Firebase Console, enable `Authentication > Sign-in method > Email/Password`.
+3. Copy config template:
+   - `copy Auth\\firebase_config.example.php Auth\\firebase_config.php`
+4. Open `Auth/firebase_config.php` and fill your Firebase Web app values.
+5. Open:
+   - `Auth/login.php` for sign-in
+   - `Auth/register.php` for sign-up
+   - `Users/Home.php` / `Users/shop.php` / `Users/contactUs.php` to see header auth state (`Login` / `Logout`)
+
+## Railway MySQL Sync (Legacy PHP Frontend)
+
+When a user signs in or registers through Firebase, the app syncs that user to MySQL tables:
+- `users` (main app user table)
+- `firebase_users` (auth mirror table)
+
+1. Create `DB/railway_mysql_config.php` (ignored by git):
+   - You can copy `DB/railway_mysql_config.example.php`.
+2. Fill Railway credentials (`host`, `port`, `database`, `user`, `password`).
+3. Auth sync endpoint:
+   - `Auth/sync_user.php`
+4. Client sync script:
+   - `Assect/js/firebase-auth-pages.js`
+
 ## API Starter Routes
 
 - `GET /api/health`
