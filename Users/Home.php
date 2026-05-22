@@ -150,7 +150,7 @@ $activePage = 'home';
 
 <body class="bg-background text-on-surface font-body-md selection:bg-primary-container selection:text-on-primary-container">
     <?php require_once __DIR__ . '/../Templates/header.php'; ?>
-    <main class="pt-16">
+    <main class="pt-16" id="app-main">
         <!-- Hero Banner -->
         <section class="relative w-full h-[819px] flex items-center overflow-hidden">
             <div class="absolute inset-0 z-0">

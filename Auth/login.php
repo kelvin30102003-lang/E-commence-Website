@@ -163,7 +163,7 @@ $authLoginHref = 'login.php';
 <body class="min-h-screen flex flex-col selection:bg-primary-container selection:text-primary">
     <?php require_once __DIR__ . '/../Templates/header.php'; ?>
 <!-- Main Content Canvas -->
-    <main class="flex-grow flex items-center justify-center pt-24 pb-12 px-gutter">
+    <main class="flex-grow flex items-center justify-center pt-24 pb-12 px-gutter" id="app-main">
         <div class="w-full max-w-[1280px] flex flex-col lg:flex-row items-center justify-center gap-xl">
             <!-- Hero Illustration/Side Content (Desktop Only) -->
             <div class="hidden lg:flex flex-col gap-md w-1/2">
@@ -225,7 +225,7 @@ $authLoginHref = 'login.php';
                     <!-- Register Link -->
                     <p class="text-center text-body-md font-body-md text-on-surface-variant mt-lg">
                         Don't have an account?
-                        <a class="text-primary font-bold hover:underline decoration-2 underline-offset-4" href="register.php">Register</a>
+                        <a class="text-primary font-bold hover:underline decoration-2 underline-offset-4" data-ajax="true" href="register.php">Register</a>
                     </p>
                 </form>
             </div>

@@ -164,7 +164,7 @@ $authLoginHref = 'login.php';
 <body class="bg-background text-on-surface font-body-md antialiased min-h-screen flex flex-col">
     <?php require_once __DIR__ . '/../Templates/header.php'; ?>
 <!-- Main Content: Centered Registration Card -->
-    <main class="flex-grow flex items-center justify-center pt-24 pb-xl px-gutter relative overflow-hidden">
+    <main class="flex-grow flex items-center justify-center pt-24 pb-xl px-gutter relative overflow-hidden" id="app-main">
         <!-- Background Decorations -->
         <div class="absolute -top-24 -left-24 w-96 h-96 bg-primary-container/20 rounded-full blur-3xl"></div>
         <div class="absolute -bottom-24 -right-24 w-96 h-96 bg-tertiary-container/30 rounded-full blur-3xl"></div>
@@ -226,7 +226,7 @@ $authLoginHref = 'login.php';
             <div class="text-center">
                 <p class="text-body-md text-on-surface-variant">
                     Already have an account?
-                    <a class="text-primary font-bold hover:underline decoration-2 underline-offset-4" href="login.php">Log In</a>
+                    <a class="text-primary font-bold hover:underline decoration-2 underline-offset-4" data-ajax="true" href="login.php">Log In</a>
                 </p>
             </div>
         </div>

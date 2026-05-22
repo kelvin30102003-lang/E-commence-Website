@@ -120,7 +120,7 @@ $activePage = 'shop';
 </head>
 <body class="bg-background text-on-surface font-body-md overflow-x-hidden">
 <?php require_once __DIR__ . '/../Templates/header.php'; ?>
-<main class="pt-24 pb-xl px-4 md:px-margin-desktop max-w-[1280px] mx-auto">
+<main class="pt-24 pb-xl px-4 md:px-margin-desktop max-w-[1280px] mx-auto" id="app-main">
 <!-- Search and Filter Section -->
 <section class="mb-xl flex flex-col md:flex-row md:items-center justify-between gap-md">
 <div class="relative w-full md:max-w-md group">
@@ -338,11 +338,11 @@ $activePage = 'shop';
 <?php require_once __DIR__ . '/../Templates/footer.php'; ?>
 <!-- BottomNavBar (Mobile Only) -->
 <nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 pb-safe py-3 bg-surface-container-low rounded-t-lg shadow-[0_-4px_12px_rgba(120,85,94,0.08)] border-t border-outline-variant/30">
-<a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors" href="Home.php">
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors" data-ajax="true" href="Home.php">
 <span class="material-symbols-outlined" data-icon="home">home</span>
 <span class="text-label-sm font-label-sm">Home</span>
 </a>
-<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1.5 transition-all duration-300" href="shop.php">
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1.5 transition-all duration-300" data-ajax="true" href="shop.php">
 <span class="material-symbols-outlined" data-icon="storefront">storefront</span>
 <span class="text-label-sm font-label-sm">Shop</span>
 </a>
