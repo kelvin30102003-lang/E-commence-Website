@@ -131,8 +131,13 @@ admin_render_sidebar($admin, 'products');
         </div>
 
         <?php if ($flash !== null): ?>
-            <div class="mb-6 rounded-lg px-4 py-3 text-sm <?= $flash['type'] === 'error' ? 'bg-red-100 text-red-800 border border-red-200' : 'bg-green-100 text-green-800 border border-green-200' ?>">
-                <?= admin_html($flash['message']) ?>
+            <div class="mb-6 rounded-lg px-4 py-3 text-sm <?= $flash['type'] === 'error' ? 'bg-red-100 text-red-800 border border-red-200' : 'bg-green-100 text-green-800 border border-green-200' ?>" data-flash-message>
+                <div class="flex items-start justify-between gap-3">
+                    <p class="leading-6"><?= admin_html($flash['message']) ?></p>
+                    <button aria-label="Close notification" class="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-black/10 focus:outline-none focus:ring-2 focus:ring-current/30" data-dismiss-flash type="button">
+                        <span class="material-symbols-outlined text-[18px] leading-none">close</span>
+                    </button>
+                </div>
             </div>
         <?php endif; ?>
 
@@ -190,7 +195,7 @@ admin_render_sidebar($admin, 'products');
         <?php if ($mode === 'create' || ($mode === 'edit' && $editingProduct !== null)): ?>
             <div class="bg-white rounded-2xl soft-shadow p-6 mb-8">
                 <h3 class="text-xl font-semibold text-[#78555e] mb-4"><?= $mode === 'edit' ? 'Edit Product' : 'Create Product' ?></h3>
-                <form method="post" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <form enctype="multipart/form-data" method="post" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <input type="hidden" name="csrf_token" value="<?= admin_html($csrfToken) ?>" />
                     <input type="hidden" name="action" value="<?= $mode === 'edit' ? 'update_product' : 'create_product' ?>" />
                     <input type="hidden" name="return_query" value="<?= admin_html($baseQuery) ?>" />
@@ -228,7 +233,7 @@ admin_render_sidebar($admin, 'products');
                         <label class="block text-sm font-semibold mb-1">Status</label>
                         <select class="w-full rounded-xl border-slate-300" name="status">
                             <?php foreach ($statusOptions as $statusOption): ?>
-                                <option value="<?= admin_html($statusOption) ?>" <?= (($editingProduct['status'] ?? 'draft') === $statusOption) ? 'selected' : '' ?>><?= admin_html(ucfirst($statusOption)) ?></option>
+                                <option value="<?= admin_html($statusOption) ?>" <?= (($editingProduct['status'] ?? 'active') === $statusOption) ? 'selected' : '' ?>><?= admin_html(ucfirst($statusOption)) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -243,6 +248,16 @@ admin_render_sidebar($admin, 'products');
                     <div>
                         <label class="block text-sm font-semibold mb-1">Initial Stock</label>
                         <input class="w-full rounded-xl border-slate-300" min="0" name="initial_stock" step="1" type="number" />
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-semibold mb-1">Product Photos (optional)</label>
+                        <input accept="image/jpeg,image/png,image/webp,image/gif" class="w-full rounded-xl border-slate-300" multiple name="product_photos[]" type="file" />
+                        <p class="text-xs text-slate-500 mt-1">
+                            Upload one or more JPG, PNG, WEBP, or GIF files (max 5MB each).
+                            <?php if ($mode === 'edit'): ?>
+                                New uploads are added to existing photos.
+                            <?php endif; ?>
+                        </p>
                     </div>
                     <div class="md:col-span-2">
                         <label class="block text-sm font-semibold mb-1">Short Description</label>
@@ -519,6 +534,19 @@ admin_render_sidebar($admin, 'products');
 <a class="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-[#78555e] text-white shadow-xl hover:scale-105 transition-all flex items-center justify-center z-50" href="manageProducts.php<?= admin_html($baseQuery) ?>&mode=create" title="Quick Add Product">
     <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">add</span>
 </a>
+<script>
+(() => {
+    const closeButtons = document.querySelectorAll('[data-dismiss-flash]');
+    closeButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            const flash = button.closest('[data-flash-message]');
+            if (flash) {
+                flash.remove();
+            }
+        });
+    });
+})();
+</script>
 </body>
 </html>
 
@@ -636,51 +664,67 @@ function createProduct(PDO $pdo, array $admin, array $statusOptions): int
 
     $categoryId = normalizeForeignId($_POST['category_id'] ?? null);
     $brandId = normalizeForeignId($_POST['brand_id'] ?? null);
-
-    $statement = $pdo->prepare(
-        'INSERT INTO products (category_id, brand_id, name, slug, short_description, description, status, created_by, created_at, updated_at)
-         VALUES (:category_id, :brand_id, :name, :slug, :short_description, :description, :status, :created_by, NOW(), NOW())'
-    );
-    $statement->execute([
-        ':category_id' => $categoryId,
-        ':brand_id' => $brandId,
-        ':name' => $name,
-        ':slug' => $slug,
-        ':short_description' => nullIfEmpty((string)($_POST['short_description'] ?? '')),
-        ':description' => nullIfEmpty((string)($_POST['description'] ?? '')),
-        ':status' => $status,
-        ':created_by' => (int)$admin['id'],
-    ]);
-
-    $productId = (int)$pdo->lastInsertId();
-    if ($productId <= 0) {
-        throw new RuntimeException('Failed to create product.');
-    }
+    $createdByUserId = resolveProductCreatedByUserId($pdo, $admin);
+    $uploadedImages = storeUploadedProductImages('product_photos');
 
     $initialSku = trim((string)($_POST['initial_sku'] ?? ''));
     $initialPrice = (float)($_POST['initial_price'] ?? 0);
     $initialStock = max(0, (int)($_POST['initial_stock'] ?? 0));
 
-    if ($initialSku !== '' || $initialPrice > 0 || $initialStock > 0) {
-        if ($initialSku === '') {
-            $initialSku = strtoupper(substr($slug, 0, 8)) . '-001';
+    $pdo->beginTransaction();
+    try {
+        $statement = $pdo->prepare(
+            'INSERT INTO products (category_id, brand_id, name, slug, short_description, description, status, created_by, created_at, updated_at)
+             VALUES (:category_id, :brand_id, :name, :slug, :short_description, :description, :status, :created_by, NOW(), NOW())'
+        );
+        $statement->execute([
+            ':category_id' => $categoryId,
+            ':brand_id' => $brandId,
+            ':name' => $name,
+            ':slug' => $slug,
+            ':short_description' => nullIfEmpty((string)($_POST['short_description'] ?? '')),
+            ':description' => nullIfEmpty((string)($_POST['description'] ?? '')),
+            ':status' => $status,
+            ':created_by' => $createdByUserId,
+        ]);
+
+        $productId = (int)$pdo->lastInsertId();
+        if ($productId <= 0) {
+            throw new RuntimeException('Failed to create product.');
         }
 
-        $variantStatement = $pdo->prepare(
-            'INSERT INTO product_variants (product_id, sku, variant_name, price, stock_quantity, low_stock_threshold, is_active, created_at, updated_at)
-             VALUES (:product_id, :sku, :variant_name, :price, :stock_quantity, :low_stock_threshold, 1, NOW(), NOW())'
-        );
-        $variantStatement->execute([
-            ':product_id' => $productId,
-            ':sku' => $initialSku,
-            ':variant_name' => 'Default',
-            ':price' => max(0.0, $initialPrice),
-            ':stock_quantity' => $initialStock,
-            ':low_stock_threshold' => 5,
-        ]);
-    }
+        if ($initialSku !== '' || $initialPrice > 0 || $initialStock > 0) {
+            if ($initialSku === '') {
+                $initialSku = strtoupper(substr($slug, 0, 8)) . '-001';
+            }
 
-    return $productId;
+            $variantStatement = $pdo->prepare(
+                'INSERT INTO product_variants (product_id, sku, variant_name, price, stock_quantity, low_stock_threshold, is_active, created_at, updated_at)
+                 VALUES (:product_id, :sku, :variant_name, :price, :stock_quantity, :low_stock_threshold, 1, NOW(), NOW())'
+            );
+            $variantStatement->execute([
+                ':product_id' => $productId,
+                ':sku' => $initialSku,
+                ':variant_name' => 'Default',
+                ':price' => max(0.0, $initialPrice),
+                ':stock_quantity' => $initialStock,
+                ':low_stock_threshold' => 5,
+            ]);
+        }
+
+        if (count($uploadedImages) > 0) {
+            saveProductImages($pdo, $productId, $uploadedImages, false);
+        }
+
+        $pdo->commit();
+        return $productId;
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        cleanupUploadedProductImages($uploadedImages);
+        throw $exception;
+    }
 }
 
 function updateProduct(PDO $pdo, array $statusOptions): int
@@ -703,35 +747,132 @@ function updateProduct(PDO $pdo, array $statusOptions): int
     $slugInput = trim((string)($_POST['slug'] ?? ''));
     $slug = buildUniqueProductSlug($pdo, $slugInput !== '' ? $slugInput : $name, $productId);
 
-    $status = trim((string)($_POST['status'] ?? 'draft'));
+    $status = trim((string)($_POST['status'] ?? 'active'));
     if (!in_array($status, $statusOptions, true)) {
         $status = 'draft';
     }
 
+    $initialSkuRaw = trim((string)($_POST['initial_sku'] ?? ''));
+    $initialPriceRaw = trim((string)($_POST['initial_price'] ?? ''));
+    $initialStockRaw = trim((string)($_POST['initial_stock'] ?? ''));
+
+    $uploadedImages = storeUploadedProductImages('product_photos');
+
+    $pdo->beginTransaction();
+    try {
+        $statement = $pdo->prepare(
+            'UPDATE products
+             SET category_id = :category_id,
+                 brand_id = :brand_id,
+                 name = :name,
+                 slug = :slug,
+                 short_description = :short_description,
+                 description = :description,
+                 status = :status,
+                 updated_at = NOW()
+             WHERE id = :id'
+        );
+        $statement->execute([
+            ':category_id' => normalizeForeignId($_POST['category_id'] ?? null),
+            ':brand_id' => normalizeForeignId($_POST['brand_id'] ?? null),
+            ':name' => $name,
+            ':slug' => $slug,
+            ':short_description' => nullIfEmpty((string)($_POST['short_description'] ?? '')),
+            ':description' => nullIfEmpty((string)($_POST['description'] ?? '')),
+            ':status' => $status,
+            ':id' => $productId,
+        ]);
+
+        // In edit mode, allow quick stock/price/SKU changes from the main product form.
+        applyInitialVariantEditValues($pdo, $productId, $slug, $initialSkuRaw, $initialPriceRaw, $initialStockRaw);
+
+        if (count($uploadedImages) > 0) {
+            saveProductImages($pdo, $productId, $uploadedImages, false);
+        }
+
+        $pdo->commit();
+        return $productId;
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        cleanupUploadedProductImages($uploadedImages);
+        throw $exception;
+    }
+}
+
+function applyInitialVariantEditValues(
+    PDO $pdo,
+    int $productId,
+    string $productSlug,
+    string $initialSkuRaw,
+    string $initialPriceRaw,
+    string $initialStockRaw
+): void {
+    $hasSkuInput = $initialSkuRaw !== '';
+    $hasPriceInput = $initialPriceRaw !== '';
+    $hasStockInput = $initialStockRaw !== '';
+
+    if (!$hasSkuInput && !$hasPriceInput && !$hasStockInput) {
+        return;
+    }
+
+    if (!admin_table_exists($pdo, 'product_variants')) {
+        throw new RuntimeException('Product variant storage is unavailable.');
+    }
+
+    $variantSku = $hasSkuInput ? $initialSkuRaw : '';
+    $variantPrice = $hasPriceInput ? max(0.0, (float)$initialPriceRaw) : 0.0;
+    $variantStock = $hasStockInput ? max(0, (int)$initialStockRaw) : 0;
+
+    $variants = fetchVariantsByProductId($pdo, $productId);
+    if (count($variants) === 0) {
+        if ($variantSku === '') {
+            $variantSku = strtoupper(substr($productSlug, 0, 8)) . '-001';
+        }
+
+        $statement = $pdo->prepare(
+            'INSERT INTO product_variants (product_id, sku, variant_name, price, stock_quantity, low_stock_threshold, is_active, created_at, updated_at)
+             VALUES (:product_id, :sku, :variant_name, :price, :stock_quantity, :low_stock_threshold, 1, NOW(), NOW())'
+        );
+        $statement->execute([
+            ':product_id' => $productId,
+            ':sku' => $variantSku,
+            ':variant_name' => 'Default',
+            ':price' => $variantPrice,
+            ':stock_quantity' => $variantStock,
+            ':low_stock_threshold' => 5,
+        ]);
+        return;
+    }
+
+    $targetVariant = $variants[0];
+    $targetVariantId = (int)($targetVariant['id'] ?? 0);
+    if ($targetVariantId <= 0) {
+        throw new RuntimeException('Unable to update default variant.');
+    }
+
+    $nextSku = $hasSkuInput ? $variantSku : trim((string)($targetVariant['sku'] ?? ''));
+    if ($nextSku === '') {
+        $nextSku = strtoupper(substr($productSlug, 0, 8)) . '-001';
+    }
+    $nextPrice = $hasPriceInput ? $variantPrice : (float)($targetVariant['price'] ?? 0);
+    $nextStock = $hasStockInput ? $variantStock : (int)($targetVariant['stock_quantity'] ?? 0);
+
     $statement = $pdo->prepare(
-        'UPDATE products
-         SET category_id = :category_id,
-             brand_id = :brand_id,
-             name = :name,
-             slug = :slug,
-             short_description = :short_description,
-             description = :description,
-             status = :status,
+        'UPDATE product_variants
+         SET sku = :sku,
+             price = :price,
+             stock_quantity = :stock_quantity,
              updated_at = NOW()
          WHERE id = :id'
     );
     $statement->execute([
-        ':category_id' => normalizeForeignId($_POST['category_id'] ?? null),
-        ':brand_id' => normalizeForeignId($_POST['brand_id'] ?? null),
-        ':name' => $name,
-        ':slug' => $slug,
-        ':short_description' => nullIfEmpty((string)($_POST['short_description'] ?? '')),
-        ':description' => nullIfEmpty((string)($_POST['description'] ?? '')),
-        ':status' => $status,
-        ':id' => $productId,
+        ':sku' => $nextSku,
+        ':price' => max(0.0, $nextPrice),
+        ':stock_quantity' => max(0, $nextStock),
+        ':id' => $targetVariantId,
     ]);
-
-    return $productId;
 }
 
 function runProductStatusUpdate(PDO $pdo, int $productId, string $status): void
@@ -1002,11 +1143,16 @@ function fetchProductList(PDO $pdo, array $filters): array
         return ['rows' => [], 'total' => 0];
     }
 
+    $variantsTableExists = admin_table_exists($pdo, 'product_variants');
     $params = [];
     $where = ['1=1'];
 
     if ($filters['q'] !== '') {
-        $where[] = '(p.name LIKE :q OR p.slug LIKE :q OR EXISTS(SELECT 1 FROM product_variants v2 WHERE v2.product_id = p.id AND v2.sku LIKE :q))';
+        if ($variantsTableExists) {
+            $where[] = '(p.name LIKE :q OR p.slug LIKE :q OR EXISTS(SELECT 1 FROM product_variants v2 WHERE v2.product_id = p.id AND v2.sku LIKE :q))';
+        } else {
+            $where[] = '(p.name LIKE :q OR p.slug LIKE :q)';
+        }
         $params[':q'] = '%' . $filters['q'] . '%';
     }
 
@@ -1020,13 +1166,52 @@ function fetchProductList(PDO $pdo, array $filters): array
         $params[':status'] = $filters['status'];
     }
 
-    if ($filters['stock'] === 'out') {
-        $where[] = 'COALESCE(vs.stock_total, 0) = 0';
-    } elseif ($filters['stock'] === 'low') {
-        $where[] = 'COALESCE(vs.low_stock_count, 0) > 0';
+    $whereSql = implode(' AND ', $where);
+    $offset = max(0, ((int)$filters['page'] - 1) * (int)$filters['per_page']);
+    $limit = (int)$filters['per_page'];
+    $stockFilter = (string)$filters['stock'];
+
+    if ($stockFilter === '') {
+        $countSql = "SELECT COUNT(*) FROM products p WHERE {$whereSql}";
+        $countStmt = $pdo->prepare($countSql);
+        foreach ($params as $key => $value) {
+            $countStmt->bindValue($key, $value);
+        }
+        $countStmt->execute();
+        $total = (int)$countStmt->fetchColumn();
+
+        $rows = fetchProductCoreRows($pdo, $whereSql, $params, $limit, $offset);
+        hydrateProductRowsWithVariantSummary($pdo, $rows);
+        hydrateProductRowsWithImages($pdo, $rows);
+        return ['rows' => $rows, 'total' => $total];
     }
 
-    $whereSql = implode(' AND ', $where);
+    if (!$variantsTableExists) {
+        if ($stockFilter === 'low') {
+            return ['rows' => [], 'total' => 0];
+        }
+
+        $countSql = "SELECT COUNT(*) FROM products p WHERE {$whereSql}";
+        $countStmt = $pdo->prepare($countSql);
+        foreach ($params as $key => $value) {
+            $countStmt->bindValue($key, $value);
+        }
+        $countStmt->execute();
+        $total = (int)$countStmt->fetchColumn();
+
+        $rows = fetchProductCoreRows($pdo, $whereSql, $params, $limit, $offset);
+        hydrateProductRowsWithVariantSummary($pdo, $rows);
+        hydrateProductRowsWithImages($pdo, $rows);
+        return ['rows' => $rows, 'total' => $total];
+    }
+
+    $stockWhere = $where;
+    if ($stockFilter === 'out') {
+        $stockWhere[] = 'COALESCE(vs.stock_total, 0) = 0';
+    } elseif ($stockFilter === 'low') {
+        $stockWhere[] = 'COALESCE(vs.low_stock_count, 0) > 0';
+    }
+    $stockWhereSql = implode(' AND ', $stockWhere);
 
     $countSql = "
         SELECT COUNT(*) FROM products p
@@ -1037,7 +1222,7 @@ function fetchProductList(PDO $pdo, array $filters): array
             FROM product_variants
             GROUP BY product_id
         ) vs ON vs.product_id = p.id
-        WHERE {$whereSql}
+        WHERE {$stockWhereSql}
     ";
     $countStmt = $pdo->prepare($countSql);
     foreach ($params as $key => $value) {
@@ -1045,8 +1230,6 @@ function fetchProductList(PDO $pdo, array $filters): array
     }
     $countStmt->execute();
     $total = (int)$countStmt->fetchColumn();
-
-    $offset = max(0, ((int)$filters['page'] - 1) * (int)$filters['per_page']);
 
     $sql = "
         SELECT
@@ -1082,7 +1265,7 @@ function fetchProductList(PDO $pdo, array $filters): array
             FROM product_images
             GROUP BY product_id
         ) img ON img.product_id = p.id
-        WHERE {$whereSql}
+        WHERE {$stockWhereSql}
         ORDER BY p.updated_at DESC, p.id DESC
         LIMIT :limit OFFSET :offset
     ";
@@ -1097,6 +1280,160 @@ function fetchProductList(PDO $pdo, array $filters): array
 
     $rows = $stmt->fetchAll();
     return ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+}
+
+function fetchProductCoreRows(PDO $pdo, string $whereSql, array $params, int $limit, int $offset): array
+{
+    $sql = "
+        SELECT
+            p.id,
+            p.name,
+            p.slug,
+            p.status,
+            p.category_id,
+            p.brand_id,
+            c.name AS category_name,
+            b.name AS brand_name
+        FROM products p
+        LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN brands b ON b.id = p.brand_id
+        WHERE {$whereSql}
+        ORDER BY p.updated_at DESC, p.id DESC
+        LIMIT :limit OFFSET :offset
+    ";
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value);
+    }
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+    $stmt->execute();
+    $rows = $stmt->fetchAll();
+    return is_array($rows) ? $rows : [];
+}
+
+function hydrateProductRowsWithVariantSummary(PDO $pdo, array &$rows): void
+{
+    if (count($rows) === 0) {
+        return;
+    }
+
+    foreach ($rows as &$row) {
+        $row['stock_total'] = 0;
+        $row['stock_target'] = 10;
+        $row['min_price'] = null;
+        $row['max_price'] = null;
+    }
+    unset($row);
+
+    if (!admin_table_exists($pdo, 'product_variants')) {
+        return;
+    }
+
+    $productIds = array_values(array_unique(array_map(
+        static fn (array $row): int => (int)($row['id'] ?? 0),
+        $rows
+    )));
+    $productIds = array_values(array_filter($productIds, static fn (int $id): bool => $id > 0));
+
+    if (count($productIds) === 0) {
+        return;
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($productIds), '?'));
+    $sql = "
+        SELECT
+            product_id,
+            COALESCE(SUM(stock_quantity), 0) AS stock_total,
+            GREATEST(1, COALESCE(MAX(low_stock_threshold), 10)) AS stock_target,
+            MIN(price) AS min_price,
+            MAX(price) AS max_price
+        FROM product_variants
+        WHERE product_id IN ({$placeholders})
+        GROUP BY product_id
+    ";
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($productIds as $index => $productId) {
+        $stmt->bindValue($index + 1, $productId, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    $summaryRows = $stmt->fetchAll();
+    $summaryByProductId = [];
+
+    if (is_array($summaryRows)) {
+        foreach ($summaryRows as $summaryRow) {
+            $summaryByProductId[(int)$summaryRow['product_id']] = $summaryRow;
+        }
+    }
+
+    foreach ($rows as &$row) {
+        $productId = (int)($row['id'] ?? 0);
+        if (!isset($summaryByProductId[$productId])) {
+            continue;
+        }
+        $summary = $summaryByProductId[$productId];
+        $row['stock_total'] = (int)($summary['stock_total'] ?? 0);
+        $row['stock_target'] = max(1, (int)($summary['stock_target'] ?? 10));
+        $row['min_price'] = $summary['min_price'] !== null ? (float)$summary['min_price'] : null;
+        $row['max_price'] = $summary['max_price'] !== null ? (float)$summary['max_price'] : null;
+    }
+    unset($row);
+}
+
+function hydrateProductRowsWithImages(PDO $pdo, array &$rows): void
+{
+    if (count($rows) === 0) {
+        return;
+    }
+
+    foreach ($rows as &$row) {
+        $row['image'] = '';
+    }
+    unset($row);
+
+    if (!admin_table_exists($pdo, 'product_images')) {
+        return;
+    }
+
+    $productIds = array_values(array_unique(array_map(
+        static fn (array $row): int => (int)($row['id'] ?? 0),
+        $rows
+    )));
+    $productIds = array_values(array_filter($productIds, static fn (int $id): bool => $id > 0));
+
+    if (count($productIds) === 0) {
+        return;
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($productIds), '?'));
+    $stmt = $pdo->prepare("
+        SELECT product_id, MIN(image) AS image
+        FROM product_images
+        WHERE product_id IN ({$placeholders})
+        GROUP BY product_id
+    ");
+    foreach ($productIds as $index => $productId) {
+        $stmt->bindValue($index + 1, $productId, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    $imageRows = $stmt->fetchAll();
+    $imageByProductId = [];
+
+    if (is_array($imageRows)) {
+        foreach ($imageRows as $imageRow) {
+            $imageByProductId[(int)$imageRow['product_id']] = (string)($imageRow['image'] ?? '');
+        }
+    }
+
+    foreach ($rows as &$row) {
+        $productId = (int)($row['id'] ?? 0);
+        if (isset($imageByProductId[$productId])) {
+            $row['image'] = $imageByProductId[$productId];
+        }
+    }
+    unset($row);
 }
 
 function fetchProductById(PDO $pdo, int $productId): ?array
@@ -1177,10 +1514,236 @@ function normalizeForeignId(mixed $value): ?int
     return $id > 0 ? $id : null;
 }
 
+function resolveProductCreatedByUserId(PDO $pdo, array $admin): ?int
+{
+    if (!admin_table_exists($pdo, 'users')) {
+        return null;
+    }
+
+    $email = strtolower(trim((string)($admin['email'] ?? '')));
+    if ($email === '') {
+        return null;
+    }
+
+    $statement = $pdo->prepare('SELECT id FROM users WHERE email = :email LIMIT 1');
+    $statement->execute([':email' => $email]);
+    $row = $statement->fetch();
+
+    if (!is_array($row)) {
+        return null;
+    }
+
+    $userId = (int)($row['id'] ?? 0);
+    return $userId > 0 ? $userId : null;
+}
+
 function nullIfEmpty(string $value): ?string
 {
     $trimmed = trim($value);
     return $trimmed === '' ? null : $trimmed;
+}
+
+function storeUploadedProductImage(string $fieldName): ?array
+{
+    if (!isset($_FILES[$fieldName]) || !is_array($_FILES[$fieldName])) {
+        return null;
+    }
+
+    $file = $_FILES[$fieldName];
+    if (is_array($file['error'] ?? null)) {
+        throw new InvalidArgumentException('Please upload exactly one product photo.');
+    }
+
+    $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error === UPLOAD_ERR_NO_FILE) {
+        return null;
+    }
+
+    if ($error !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('Product photo upload failed. Please try again.');
+    }
+
+    $tmpPath = (string)($file['tmp_name'] ?? '');
+    if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+        throw new RuntimeException('Uploaded product photo is invalid.');
+    }
+
+    $size = (int)($file['size'] ?? 0);
+    if ($size <= 0) {
+        throw new InvalidArgumentException('Product photo file is empty.');
+    }
+    if ($size > 5 * 1024 * 1024) {
+        throw new InvalidArgumentException('Product photo must be 5MB or smaller.');
+    }
+
+    $mimeType = '';
+    if (class_exists('finfo')) {
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $detectedType = $finfo->file($tmpPath);
+        if (is_string($detectedType)) {
+            $mimeType = strtolower(trim($detectedType));
+        }
+    }
+    if ($mimeType === '' && function_exists('mime_content_type')) {
+        $detectedType = mime_content_type($tmpPath);
+        if (is_string($detectedType)) {
+            $mimeType = strtolower(trim($detectedType));
+        }
+    }
+    if ($mimeType === '') {
+        $imageInfo = @getimagesize($tmpPath);
+        if (is_array($imageInfo) && isset($imageInfo['mime'])) {
+            $mimeType = strtolower((string)$imageInfo['mime']);
+        }
+    }
+
+    $allowedMimeTypes = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        'image/gif' => 'gif',
+    ];
+    if (!isset($allowedMimeTypes[$mimeType])) {
+        throw new InvalidArgumentException('Only JPG, PNG, WEBP, or GIF files are allowed.');
+    }
+
+    $uploadDirectory = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'Assect' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'products';
+    if (!is_dir($uploadDirectory) && !mkdir($uploadDirectory, 0755, true) && !is_dir($uploadDirectory)) {
+        throw new RuntimeException('Unable to prepare product photo storage directory.');
+    }
+
+    $fileName = gmdate('YmdHis') . '_' . bin2hex(random_bytes(8)) . '.' . $allowedMimeTypes[$mimeType];
+    $absolutePath = $uploadDirectory . DIRECTORY_SEPARATOR . $fileName;
+
+    if (!move_uploaded_file($tmpPath, $absolutePath)) {
+        throw new RuntimeException('Unable to save uploaded product photo.');
+    }
+
+    return [
+        'public_path' => '../Assect/uploads/products/' . $fileName,
+        'absolute_path' => $absolutePath,
+    ];
+}
+
+function storeUploadedProductImages(string $fieldName): array
+{
+    if (!isset($_FILES[$fieldName]) || !is_array($_FILES[$fieldName])) {
+        return [];
+    }
+
+    $file = $_FILES[$fieldName];
+    if (!isset($file['error'])) {
+        return [];
+    }
+
+    // Backward compatibility: if browser submits a single file shape, reuse the existing validator.
+    if (!is_array($file['error'])) {
+        $uploaded = storeUploadedProductImage($fieldName);
+        return $uploaded === null ? [] : [$uploaded];
+    }
+
+    $count = count($file['error']);
+    $uploadedFiles = [];
+
+    for ($index = 0; $index < $count; $index++) {
+        $singleFile = [
+            'name' => $file['name'][$index] ?? '',
+            'type' => $file['type'][$index] ?? '',
+            'tmp_name' => $file['tmp_name'][$index] ?? '',
+            'error' => $file['error'][$index] ?? UPLOAD_ERR_NO_FILE,
+            'size' => $file['size'][$index] ?? 0,
+        ];
+
+        if ((int)$singleFile['error'] === UPLOAD_ERR_NO_FILE) {
+            continue;
+        }
+
+        // Validate/store one file by reusing existing implementation.
+        $backup = $_FILES[$fieldName] ?? null;
+        $_FILES[$fieldName] = $singleFile;
+        try {
+            $uploaded = storeUploadedProductImage($fieldName);
+        } finally {
+            if (is_array($backup)) {
+                $_FILES[$fieldName] = $backup;
+            } else {
+                unset($_FILES[$fieldName]);
+            }
+        }
+
+        if ($uploaded !== null) {
+            $uploadedFiles[] = $uploaded;
+        }
+    }
+
+    if (count($uploadedFiles) > 12) {
+        cleanupUploadedProductImages($uploadedFiles);
+        throw new InvalidArgumentException('Please upload at most 12 product photos at once.');
+    }
+
+    return $uploadedFiles;
+}
+
+function cleanupUploadedProductImage(?array $uploadedImage): void
+{
+    if ($uploadedImage === null) {
+        return;
+    }
+
+    $absolutePath = (string)($uploadedImage['absolute_path'] ?? '');
+    if ($absolutePath !== '' && is_file($absolutePath)) {
+        @unlink($absolutePath);
+    }
+}
+
+function cleanupUploadedProductImages(array $uploadedImages): void
+{
+    foreach ($uploadedImages as $uploadedImage) {
+        cleanupUploadedProductImage(is_array($uploadedImage) ? $uploadedImage : null);
+    }
+}
+
+function saveProductImage(PDO $pdo, int $productId, string $imagePath, bool $replaceExisting): void
+{
+    if ($productId <= 0) {
+        throw new InvalidArgumentException('Invalid product for product photo.');
+    }
+
+    $imagePath = trim($imagePath);
+    if ($imagePath === '') {
+        throw new InvalidArgumentException('Product photo path is invalid.');
+    }
+
+    if (!admin_table_exists($pdo, 'product_images')) {
+        throw new RuntimeException('Product image storage is unavailable.');
+    }
+
+    if ($replaceExisting) {
+        $delete = $pdo->prepare('DELETE FROM product_images WHERE product_id = :product_id');
+        $delete->execute([':product_id' => $productId]);
+    }
+
+    $insert = $pdo->prepare('INSERT INTO product_images (product_id, image) VALUES (:product_id, :image)');
+    $insert->execute([
+        ':product_id' => $productId,
+        ':image' => $imagePath,
+    ]);
+}
+
+function saveProductImages(PDO $pdo, int $productId, array $uploadedImages, bool $replaceExisting): void
+{
+    $first = true;
+    foreach ($uploadedImages as $uploadedImage) {
+        if (!is_array($uploadedImage)) {
+            continue;
+        }
+        $imagePath = trim((string)($uploadedImage['public_path'] ?? ''));
+        if ($imagePath === '') {
+            continue;
+        }
+        saveProductImage($pdo, $productId, $imagePath, $replaceExisting && $first);
+        $first = false;
+    }
 }
 
 function setAdminFlash(string $type, string $message): void

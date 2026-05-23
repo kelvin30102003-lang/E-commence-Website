@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../DB/railway_mysql.php';
 
 const ADMIN_SESSION_KEY = 'luvshop_admin_auth';
 const ADMIN_CSRF_KEY = 'luvshop_admin_csrf';
+const ADMIN_SCHEMA_CACHE_TTL_SECONDS = 43200;
 
 function admin_db(): PDO
 {
@@ -31,6 +32,17 @@ function admin_start_session(): void
 
 function admin_ensure_tables(PDO $pdo): void
 {
+    static $ensuredInRequest = false;
+
+    if ($ensuredInRequest) {
+        return;
+    }
+    $ensuredInRequest = true;
+
+    if (admin_can_skip_schema_bootstrap()) {
+        return;
+    }
+
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS admin_accounts (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -58,6 +70,9 @@ function admin_ensure_tables(PDO $pdo): void
             KEY idx_admin_activity_logs_created (created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+
+    admin_ensure_mysql_performance_indexes($pdo);
+    admin_mark_schema_bootstrap_checked();
 }
 
 function admin_bootstrap_csrf_token(): string
@@ -499,6 +514,240 @@ function admin_table_exists(PDO $pdo, string $tableName): bool
     $cache[$tableName] = $exists;
 
     return $exists;
+}
+
+function admin_ensure_mysql_performance_indexes(PDO $pdo): void
+{
+    static $ensured = false;
+
+    if ($ensured) {
+        return;
+    }
+    $ensured = true;
+
+    $definitions = [
+        [
+            'table' => 'products',
+            'name' => 'idx_products_updated_at_id',
+            'columns' => ['updated_at', 'id'],
+            'sql' => 'CREATE INDEX idx_products_updated_at_id ON `products` (`updated_at`, `id`)',
+        ],
+        [
+            'table' => 'products',
+            'name' => 'idx_products_status_updated_at_id',
+            'columns' => ['status', 'updated_at', 'id'],
+            'sql' => 'CREATE INDEX idx_products_status_updated_at_id ON `products` (`status`, `updated_at`, `id`)',
+        ],
+        [
+            'table' => 'products',
+            'name' => 'idx_products_category_updated_at_id',
+            'columns' => ['category_id', 'updated_at', 'id'],
+            'sql' => 'CREATE INDEX idx_products_category_updated_at_id ON `products` (`category_id`, `updated_at`, `id`)',
+        ],
+        [
+            'table' => 'product_variants',
+            'name' => 'idx_product_variants_product_id',
+            'columns' => ['product_id'],
+            'sql' => 'CREATE INDEX idx_product_variants_product_id ON `product_variants` (`product_id`)',
+        ],
+        [
+            'table' => 'product_variants',
+            'name' => 'idx_product_variants_product_active_stock',
+            'columns' => ['product_id', 'is_active', 'stock_quantity', 'low_stock_threshold'],
+            'sql' => 'CREATE INDEX idx_product_variants_product_active_stock ON `product_variants` (`product_id`, `is_active`, `stock_quantity`, `low_stock_threshold`)',
+        ],
+        [
+            'table' => 'product_variants',
+            'name' => 'idx_product_variants_product_price',
+            'columns' => ['product_id', 'price'],
+            'sql' => 'CREATE INDEX idx_product_variants_product_price ON `product_variants` (`product_id`, `price`)',
+        ],
+        [
+            'table' => 'product_images',
+            'name' => 'idx_product_images_product_id',
+            'columns' => ['product_id'],
+            'sql' => 'CREATE INDEX idx_product_images_product_id ON `product_images` (`product_id`)',
+        ],
+        [
+            'table' => 'orders',
+            'name' => 'idx_orders_status_created_at',
+            'columns' => ['order_status', 'created_at'],
+            'sql' => 'CREATE INDEX idx_orders_status_created_at ON `orders` (`order_status`, `created_at`)',
+        ],
+        [
+            'table' => 'orders',
+            'name' => 'idx_orders_created_at',
+            'columns' => ['created_at'],
+            'sql' => 'CREATE INDEX idx_orders_created_at ON `orders` (`created_at`)',
+        ],
+        [
+            'table' => 'order_items',
+            'name' => 'idx_order_items_product_id',
+            'columns' => ['product_id'],
+            'sql' => 'CREATE INDEX idx_order_items_product_id ON `order_items` (`product_id`)',
+        ],
+    ];
+
+    try {
+        $targetTables = array_values(array_unique(array_map(
+            static fn (array $definition): string => (string)$definition['table'],
+            $definitions
+        )));
+
+        $indexMetadata = admin_fetch_table_index_metadata($pdo, $targetTables);
+        $tableColumnsCache = [];
+
+        foreach ($definitions as $definition) {
+            $tableName = (string)$definition['table'];
+            $indexName = (string)$definition['name'];
+            $columns = $definition['columns'];
+            $signature = implode(',', $columns);
+
+            if (!admin_table_exists($pdo, $tableName)) {
+                continue;
+            }
+
+            if (isset($indexMetadata[$tableName]['by_name'][$indexName])) {
+                continue;
+            }
+
+            if (isset($indexMetadata[$tableName]['by_signature'][$signature])) {
+                continue;
+            }
+
+            if (!admin_table_has_columns($pdo, $tableName, $columns, $tableColumnsCache)) {
+                continue;
+            }
+
+            try {
+                $pdo->exec((string)$definition['sql']);
+                $indexMetadata[$tableName]['by_name'][$indexName] = true;
+                $indexMetadata[$tableName]['by_signature'][$signature] = true;
+            } catch (Throwable) {
+                // Non-fatal: index creation can fail if DB permissions are restricted.
+            }
+        }
+    } catch (Throwable) {
+        // Non-fatal: skip automatic index setup if metadata lookup is unavailable.
+    }
+}
+
+function admin_fetch_table_index_metadata(PDO $pdo, array $tableNames): array
+{
+    $metadata = [];
+    if (count($tableNames) === 0) {
+        return $metadata;
+    }
+
+    $quotedTables = [];
+    foreach ($tableNames as $tableName) {
+        $quotedTables[] = $pdo->quote((string)$tableName);
+    }
+    $inList = implode(', ', $quotedTables);
+
+    $sql = "
+        SELECT
+            table_name AS table_name_key,
+            index_name AS index_name_key,
+            seq_in_index AS seq_in_index_key,
+            column_name AS column_name_key
+        FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name IN ({$inList})
+        ORDER BY table_name, index_name, seq_in_index
+    ";
+    $rows = $pdo->query($sql)->fetchAll();
+    if (!is_array($rows)) {
+        return $metadata;
+    }
+
+    $columnsByIndex = [];
+    foreach ($rows as $row) {
+        $tableName = (string)($row['table_name_key'] ?? '');
+        $indexName = (string)($row['index_name_key'] ?? '');
+        $columnName = (string)($row['column_name_key'] ?? '');
+
+        if ($tableName === '' || $indexName === '' || $columnName === '') {
+            continue;
+        }
+
+        if (!isset($columnsByIndex[$tableName])) {
+            $columnsByIndex[$tableName] = [];
+        }
+        if (!isset($columnsByIndex[$tableName][$indexName])) {
+            $columnsByIndex[$tableName][$indexName] = [];
+        }
+        $columnsByIndex[$tableName][$indexName][] = $columnName;
+    }
+
+    foreach ($columnsByIndex as $tableName => $indexes) {
+        $metadata[$tableName] = [
+            'by_name' => [],
+            'by_signature' => [],
+        ];
+
+        foreach ($indexes as $indexName => $columns) {
+            $metadata[$tableName]['by_name'][(string)$indexName] = true;
+            $metadata[$tableName]['by_signature'][implode(',', $columns)] = true;
+        }
+    }
+
+    return $metadata;
+}
+
+function admin_table_has_columns(PDO $pdo, string $tableName, array $requiredColumns, array &$cache): bool
+{
+    if (!isset($cache[$tableName])) {
+        $statement = $pdo->prepare(
+            'SELECT column_name AS column_name_key FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table_name'
+        );
+        $statement->execute([':table_name' => $tableName]);
+        $rows = $statement->fetchAll();
+
+        $cache[$tableName] = [];
+        if (is_array($rows)) {
+            foreach ($rows as $row) {
+                $column = (string)($row['column_name_key'] ?? '');
+                if ($column !== '') {
+                    $cache[$tableName][$column] = true;
+                }
+            }
+        }
+    }
+
+    foreach ($requiredColumns as $column) {
+        if (!isset($cache[$tableName][(string)$column])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function admin_schema_bootstrap_cache_file(): string
+{
+    return dirname(__DIR__) . DIRECTORY_SEPARATOR . '.admin_schema_bootstrap.cache';
+}
+
+function admin_can_skip_schema_bootstrap(): bool
+{
+    $cacheFile = admin_schema_bootstrap_cache_file();
+    if (!is_file($cacheFile)) {
+        return false;
+    }
+
+    $lastCheckedAt = (int)@filemtime($cacheFile);
+    if ($lastCheckedAt <= 0) {
+        return false;
+    }
+
+    return (time() - $lastCheckedAt) < ADMIN_SCHEMA_CACHE_TTL_SECONDS;
+}
+
+function admin_mark_schema_bootstrap_checked(): void
+{
+    $cacheFile = admin_schema_bootstrap_cache_file();
+    @touch($cacheFile);
 }
 
 function admin_html(?string $value): string

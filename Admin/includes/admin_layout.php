@@ -10,9 +10,10 @@ function admin_nav_items(): array
         ['key' => 'categories', 'label' => 'Categories', 'icon' => 'widgets', 'href' => 'manageCategories.php'],
         ['key' => 'brands', 'label' => 'Brands', 'icon' => 'bookmark', 'href' => 'manageBrands.php'],
         ['key' => 'orders', 'label' => 'Orders', 'icon' => 'shopping_cart', 'href' => 'manageOrders.php'],
+        ['key' => 'shipping', 'label' => 'Shipping', 'icon' => 'local_shipping', 'href' => 'manageShipping.php'],
         ['key' => 'coupons', 'label' => 'Coupons', 'icon' => 'sell', 'href' => 'manageCoupons.php'],
         ['key' => 'payments', 'label' => 'Payments', 'icon' => 'payments', 'href' => 'managePayments.php'],
-        ['key' => 'users', 'label' => 'Customers', 'icon' => 'group', 'href' => 'manageUsers.php'],
+        ['key' => 'users', 'label' => 'Users', 'icon' => 'group', 'href' => 'manageUsers.php'],
         ['key' => 'logs', 'label' => 'Analytics', 'icon' => 'analytics', 'href' => 'activityLogs.php'],
     ];
 }

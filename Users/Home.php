@@ -1,5 +1,21 @@
 <?php
+
+declare(strict_types=1);
+
 $activePage = 'home';
+
+require_once __DIR__ . '/includes/shop_backend.php';
+shop_start_session();
+
+$dbError = null;
+$featuredProducts = [];
+
+try {
+    $pdo = shop_db();
+    $featuredProducts = shop_featured_products($pdo, 8);
+} catch (Throwable $exception) {
+    $dbError = $exception->getMessage();
+}
 ?>
 
 <!DOCTYPE html>
@@ -10,7 +26,6 @@ $activePage = 'home';
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300..700&amp;family=Plus+Jakarta+Sans:wght@200..800&amp;display=swap" rel="stylesheet" />
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet" />
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <script id="tailwind-config">
@@ -151,6 +166,13 @@ $activePage = 'home';
 <body class="bg-background text-on-surface font-body-md selection:bg-primary-container selection:text-on-primary-container">
     <?php require_once __DIR__ . '/../Templates/header.php'; ?>
     <main class="pt-16" id="app-main">
+        <?php if ($dbError !== null): ?>
+            <section class="max-w-[1280px] mx-auto px-margin-mobile md:px-margin-desktop pt-lg">
+                <div class="rounded-xl border border-red-200 bg-error-container px-md py-sm text-on-error-container text-sm">
+                    DB connection error: <?= shop_h($dbError) ?>
+                </div>
+            </section>
+        <?php endif; ?>
         <!-- Hero Banner -->
         <section class="relative w-full h-[819px] flex items-center overflow-hidden">
             <div class="absolute inset-0 z-0">
@@ -163,8 +185,8 @@ $activePage = 'home';
                     <h1 class="text-display-lg font-display-lg text-primary leading-tight">Welcome to LuvShop</h1>
                     <p class="text-body-lg font-body-lg text-on-surface-variant">Discover a curated world of cute essentials designed to bring a little extra sparkle and warmth to your everyday life.</p>
                     <div class="flex gap-md pt-md">
-                        <button class="px-xl py-md bg-primary text-on-primary rounded-full font-label-md text-label-md hover:opacity-90 shadow-lg active:scale-95 transition-all">Shop Now</button>
-                        <button class="px-xl py-md bg-secondary-container text-on-secondary-container rounded-full font-label-md text-label-md hover:bg-secondary-fixed active:scale-95 transition-all">Learn More</button>
+                        <a class="px-xl py-md bg-primary text-on-primary rounded-full font-label-md text-label-md hover:opacity-90 shadow-lg active:scale-95 transition-all" data-ajax="true" href="shop.php">Shop Now</a>
+                        <a class="px-xl py-md bg-secondary-container text-on-secondary-container rounded-full font-label-md text-label-md hover:bg-secondary-fixed active:scale-95 transition-all" data-ajax="true" href="<?= count($featuredProducts) > 0 ? shop_h(shop_product_detail_url($featuredProducts[0])) : 'shop.php' ?>">Learn More</a>
                     </div>
                 </div>
             </div>
@@ -174,45 +196,44 @@ $activePage = 'home';
             <div class="flex items-end justify-between mb-xl">
                 <div class="space-y-xs">
                     <h2 class="text-headline-lg font-headline-lg text-primary">Featured Treasures</h2>
-                    <p class="text-on-surface-variant font-body-md">Hand-picked delights just for you</p>
+                    <p class="text-on-surface-variant font-body-md">Live products from your database</p>
                 </div>
-                <button class="flex items-center gap-sm text-primary font-label-md">
+                <a class="flex items-center gap-sm text-primary font-label-md hover:opacity-80 transition-opacity" data-ajax="true" href="shop.php">
                     View All <span class="material-symbols-outlined">arrow_forward</span>
-                </button>
+                </a>
             </div>
-            <div class="grid grid-cols-12 grid-rows-2 gap-lg h-[800px]">
-                <!-- Large Featured Card -->
-                <div class="col-span-6 row-span-2 relative group overflow-hidden rounded-lg bg-surface-container-low shadow-sm">
-                    <img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" data-alt="A close-up shot of a high-quality, handcrafted ceramic mug with a cute whimsical character design. The scene is bright and airy with soft morning sunlight hitting a wooden table. Pastel colors like blush pink and lemon yellow are prominent, creating a cozy and cheerful morning ritual vibe." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA7nx3bnappTLABUiFnEGzPQMyqRD3-CLkua0a8wcxMIyqhUg1dAut-P5zt2lC6JxWkp59pr4LKbfyblRMXeCA23EBDkJkX5vUwCKP1cdliCroezGP-dn7pG-ZKzuqXMfKbGLAaC8f4Dr5BTscwez7MvYRSCbVYJ7aQp7bF6jTscubq_Ya4c93H86qgNZewbmK9Ebzo3_G2wTbzMp7oobV7Z-X66tEG903jrnIY4U2OUce0GUebsNutBWEL7O83TXLf9kl9PP5Z1oc" />
-                    <div class="absolute inset-0 bg-gradient-to-t from-primary/60 to-transparent flex flex-col justify-end p-xl text-white">
-                        <span class="text-label-md font-label-md mb-xs opacity-90">Daily Essential</span>
-                        <h3 class="text-headline-md font-headline-md mb-md">Whimsical Morning Mugs</h3>
-                        <button class="w-fit px-lg py-sm bg-white text-primary rounded-full font-label-md">Explore Series</button>
-                    </div>
+
+            <?php if (count($featuredProducts) === 0): ?>
+                <div class="bg-white rounded-lg p-xl shadow-sm border border-outline-variant/20 text-center">
+                    <h3 class="text-headline-md font-headline-md text-primary mb-sm">No featured products yet</h3>
+                    <p class="text-on-surface-variant mb-md">Add active products with variants from admin to show them here.</p>
+                    <a class="inline-flex px-lg py-sm rounded-full bg-primary text-on-primary font-label-md" data-ajax="true" href="shop.php">Open Shop</a>
                 </div>
-                <!-- Secondary Cards -->
-                <div class="col-span-6 row-span-1 relative group overflow-hidden rounded-lg bg-tertiary-container shadow-sm">
-                    <img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" data-alt="A collection of soft, pastel-colored stationary and planners laid out on a clean white desk. The lighting is high-key and shadowless, emphasizing the 'clean and organized' aesthetic. Tactile textures of high-quality paper and fabric covers are visible, evoking a sense of productivity and calm." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAgJjW_4riUH1p6rPWBRf22rMQ9TA2P2qKBOhPrc55f_mXZmVRmeFB2vjjO0hGdeBoTGr7vMQxlFKU96DllcSMygEvYHvJHuCjFy3Q7mYCRAl0txGtbvb4i64Vqa57mZhky3rKGje4HgBDmfDg08VJt22wkwwkysZ4sGbKkVQ5m01B2iCIyrU28r9WsWuBdTRhluFypDbMH3vqJVlxEpyGUeuXPIGATIoBoF0Q1X6VwQcEdyGkuVE7iSAFK-JNvdLhsa1y_TF2YuH0" />
-                    <div class="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                        <div class="bg-white/90 backdrop-blur-md px-lg py-md rounded-xl text-center transform translate-y-4 group-hover:translate-y-0 transition-transform">
-                            <p class="font-headline-md text-primary">Stationery Sets</p>
-                            <p class="text-label-sm font-label-sm text-on-surface-variant">From $24.00</p>
-                        </div>
-                    </div>
+            <?php else: ?>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-lg">
+                    <?php foreach ($featuredProducts as $index => $product): ?>
+                        <?php
+                            $name = trim((string)($product['name'] ?? 'Product'));
+                            $image = trim((string)($product['image'] ?? ''));
+                            $price = (float)($product['price'] ?? 0);
+                            $detailUrl = shop_product_detail_url($product);
+                        ?>
+                        <a class="group bg-white rounded-lg p-md shadow-sm hover:-translate-y-1 transition-transform duration-300" data-ajax="true" href="<?= shop_h($detailUrl) ?>">
+                            <div class="relative aspect-square rounded-lg overflow-hidden mb-md bg-surface-container-low">
+                                <?php if ($image !== ''): ?>
+                                    <img alt="<?= shop_h($name) ?>" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" decoding="async" loading="lazy" src="<?= shop_h($image) ?>"/>
+                                <?php else: ?>
+                                    <div class="w-full h-full bg-gradient-to-br <?= shop_h(shop_placeholder_gradient($index)) ?> flex items-center justify-center">
+                                        <span class="text-primary text-2xl font-bold"><?= shop_h(strtoupper(substr($name, 0, 1))) ?></span>
+                                    </div>
+                            <?php endif; ?>
+                            </div>
+                            <h3 class="text-headline-md font-headline-md text-primary mb-xs"><?= shop_h($name) ?></h3>
+                            <p class="font-bold text-on-surface"><?= shop_h(shop_money($price)) ?></p>
+                        </a>
+                    <?php endforeach; ?>
                 </div>
-                <div class="col-span-3 row-span-1 relative group overflow-hidden rounded-lg bg-secondary-container shadow-sm">
-                    <img class="w-full h-full object-cover" data-alt="A soft plush toy shaped like a round, friendly cloud with embroidered eyes and a pink blush. It sits against a background of soft textures like wool and cotton. The lighting is diffused and warm, emphasizing the 'squishy' and safe tactile nature of the product." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAW8fUMEDPBmNZSQIeH0TzWDGcxBtxf_Vy4ao2cTg4PHwbU4HLb1BuXOtFbDfskP2afuqRWyooZE-sLNULfFQX7Au6eWflRf2Z6YrDfYFRmt307CRwRU86dYM1gj1ttzL4q9tB6y2ENIl6ftNgq6eFG2V9NrTtS_MgjXIqn_Wh8pGj--mPcgPDHDLieAQsKnoHcgS7Y3dtuccKt4g7Z0pngzNAwnRALnaNx13sK-T1drB2LE28iUtSbViR54iCIaVNjFUXCh9BFkZc" />
-                    <div class="absolute bottom-4 left-4 right-4 bg-white/80 p-md rounded-lg">
-                        <p class="font-label-md text-primary">Cloud Plush</p>
-                    </div>
-                </div>
-                <div class="col-span-3 row-span-1 relative group overflow-hidden rounded-lg bg-primary-container shadow-sm">
-                    <img class="w-full h-full object-cover" data-alt="A beautifully packaged gift box tied with a satin ribbon in blush pink. The box is surrounded by dried flower petals and delicate tissue paper. The visual style is premium yet domestic, showcasing the care and love that goes into LuvShop packaging." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA_NLIZxwq9heFiNad9wXWmU2I3dqXxGTj9dz-GvsGIzsKN-DbF_npcSy_exuQcV7ZiR02Xc5FjFpIixcFPAsosJswMot2ajdHBYjSPWXy-vSXyyWYtXWAl2dNAYrKSQPuDExKRwQAcEYK0pFjJvczJibzOMMIy-pmFhnkm2OngWdlUR32aUkEgzXnJ7g6kU8vBBFuOV8Z_H6A7fGRxacGisNvOtpr8HShv8zOIT4zGm22TFxmp5btndm46pTRv1TGqcmx_M7sDdYc" />
-                    <div class="absolute bottom-4 left-4 right-4 bg-white/80 p-md rounded-lg">
-                        <p class="font-label-md text-primary">Gift Boxes</p>
-                    </div>
-                </div>
-            </div>
+            <?php endif; ?>
         </section>
         <!-- New Arrivals Spotlight -->
         <section class="bg-surface-container-low py-xl overflow-hidden">
@@ -232,8 +253,8 @@ $activePage = 'home';
                         <button class="mt-lg px-xl py-md border-2 border-primary text-primary rounded-full font-label-md hover:bg-primary hover:text-on-primary transition-colors active:scale-95">Explore Collection</button>
                     </div>
                     <div class="w-full md:w-1/2 grid grid-cols-2 gap-md">
-                        <img class="rounded-lg h-64 w-full object-cover" data-alt="A close up of a soft wool knit blanket in a muted lavender color. The texture is intricate and chunky, emphasizing the comfort and warmth of the new winter collection. The lighting is low and moody but still bright enough to see the detailed fibers of the yarn." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWYhNtTt1Zw2lPgaZx6Rhz9pjL0yBxH9bWInurmtqAjFZft3IxKoq0sdoi_6JXw4cOggKtsZ2YH0db-Ihqx2O2-j4HTtZyvkNSQHQa1BZ52G5XPUr56PpumYkoPUxXOyLX8aReZ98LKe6zTcmyqO-MI9QAN1rOry10BjvTklApWhKRRPLthX4cCU-8UXnmQ2txKI4tuDLIphHZyLv4PKhLFXmcRS2pn87oGlrpNaq92OBZCsX7HpxiRyPJdfLDma1jKjjx4GEUBxY" />
-                        <img class="rounded-lg h-64 w-full object-cover mt-lg" data-alt="An assortment of scented candles in aesthetic matte glass jars. The jars are colored in soft sage green, blush pink, and pale lemon. The candles are unlit, sitting on a marble tray surrounded by soft cotton stems. The atmosphere is serene and relaxing." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAyZrMmL1y-eXpZ-jrdQmsxggkt45NnsrCdgFvsMjxX-tvVZYZ9eTYx2iWjq_hw7l4eOKWgNlN-0FwUej99gdOQx7IQNsaBqtuApCJGApuqghPZWawjRcopb9QaUhL4AdW6iQZs82xnoQcwATq2At-1__O3O9raNN_ULfOLOOM_4cFJpNa_1F7AJdCiSHa71pfq-9Y6bHkT8VGnTo7qgL75db-cQ9_OhIzY8mYraq4PxDn-X1EIoPO7O1jLCGpHPv8TmZM20yCPreM" />
+                        <img class="rounded-lg h-64 w-full object-cover" data-alt="A close up of a soft wool knit blanket in a muted lavender color. The texture is intricate and chunky, emphasizing the comfort and warmth of the new winter collection. The lighting is low and moody but still bright enough to see the detailed fibers of the yarn." decoding="async" loading="lazy" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWYhNtTt1Zw2lPgaZx6Rhz9pjL0yBxH9bWInurmtqAjFZft3IxKoq0sdoi_6JXw4cOggKtsZ2YH0db-Ihqx2O2-j4HTtZyvkNSQHQa1BZ52G5XPUr56PpumYkoPUxXOyLX8aReZ98LKe6zTcmyqO-MI9QAN1rOry10BjvTklApWhKRRPLthX4cCU-8UXnmQ2txKI4tuDLIphHZyLv4PKhLFXmcRS2pn87oGlrpNaq92OBZCsX7HpxiRyPJdfLDma1jKjjx4GEUBxY" />
+                        <img class="rounded-lg h-64 w-full object-cover mt-lg" data-alt="An assortment of scented candles in aesthetic matte glass jars. The jars are colored in soft sage green, blush pink, and pale lemon. The candles are unlit, sitting on a marble tray surrounded by soft cotton stems. The atmosphere is serene and relaxing." decoding="async" loading="lazy" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAyZrMmL1y-eXpZ-jrdQmsxggkt45NnsrCdgFvsMjxX-tvVZYZ9eTYx2iWjq_hw7l4eOKWgNlN-0FwUej99gdOQx7IQNsaBqtuApCJGApuqghPZWawjRcopb9QaUhL4AdW6iQZs82xnoQcwATq2At-1__O3O9raNN_ULfOLOOM_4cFJpNa_1F7AJdCiSHa71pfq-9Y6bHkT8VGnTo7qgL75db-cQ9_OhIzY8mYraq4PxDn-X1EIoPO7O1jLCGpHPv8TmZM20yCPreM" />
                     </div>
                 </div>
             </div>

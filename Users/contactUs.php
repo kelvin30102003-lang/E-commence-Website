@@ -1,5 +1,55 @@
 <?php
+
+declare(strict_types=1);
+
 $activePage = 'contact';
+
+require_once __DIR__ . '/includes/shop_backend.php';
+shop_start_session();
+
+$contactSettings = [
+    'support_email' => 'hello@luvshop.com',
+    'support_phone' => '+95 786917400',
+    'support_address' => '145/4, Yangon',
+];
+
+$formState = [
+    'full_name' => '',
+    'email' => '',
+    'subject' => '',
+    'message' => '',
+];
+
+$dbError = null;
+$formError = null;
+$formSuccess = null;
+
+try {
+    $pdo = shop_db();
+    $contactSettings = shop_fetch_contact_settings($pdo);
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $formState['full_name'] = trim((string)($_POST['full_name'] ?? ''));
+        $formState['email'] = trim((string)($_POST['email'] ?? ''));
+        $formState['subject'] = trim((string)($_POST['subject'] ?? ''));
+        $formState['message'] = trim((string)($_POST['message'] ?? ''));
+
+        try {
+            shop_save_contact_message($pdo, $formState);
+            $formSuccess = 'Message sent successfully. We will reply soon.';
+            $formState = [
+                'full_name' => '',
+                'email' => '',
+                'subject' => '',
+                'message' => '',
+            ];
+        } catch (InvalidArgumentException $exception) {
+            $formError = $exception->getMessage();
+        }
+    }
+} catch (Throwable $exception) {
+    $dbError = $exception->getMessage();
+}
 ?>
 
 <!DOCTYPE html>
@@ -11,7 +61,6 @@ $activePage = 'contact';
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Contact Us - LuvShop</title>
     <!-- Material Symbols -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet" />
     <!-- Google Fonts: Quicksand & Plus Jakarta Sans -->
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300..700&amp;family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&amp;display=swap" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet" />
@@ -166,6 +215,21 @@ $activePage = 'contact';
     <?php require_once __DIR__ . '/../Templates/header.php'; ?>
     <!-- Main Content Canvas -->
     <main class="pt-24 pb-xl px-margin-mobile md:px-margin-desktop max-w-[1280px] mx-auto min-h-screen" id="app-main">
+        <?php if ($dbError !== null): ?>
+            <div class="mb-lg rounded-xl border border-red-200 bg-error-container px-md py-sm text-sm text-on-error-container">
+                DB connection error: <?= shop_h($dbError) ?>
+            </div>
+        <?php endif; ?>
+        <?php if ($formError !== null): ?>
+            <div class="mb-lg rounded-xl border border-red-200 bg-error-container px-md py-sm text-sm text-on-error-container">
+                <?= shop_h($formError) ?>
+            </div>
+        <?php endif; ?>
+        <?php if ($formSuccess !== null): ?>
+            <div class="mb-lg rounded-xl border border-green-200 bg-secondary-container px-md py-sm text-sm text-on-secondary-container">
+                <?= shop_h($formSuccess) ?>
+            </div>
+        <?php endif; ?>
         <!-- Header Section -->
         <div class="mb-xl text-center md:text-left">
             <h2 class="text-display-lg font-headline-lg text-primary mb-sm">Let's be friends!</h2>
@@ -190,7 +254,7 @@ $activePage = 'contact';
                             </div>
                             <div>
                                 <p class="text-label-sm font-label-sm text-outline uppercase tracking-wider">Email Us</p>
-                                <p class="text-body-md font-body-md font-bold">hello@luvshop.com</p>
+                                <p class="text-body-md font-body-md font-bold"><?= shop_h($contactSettings['support_email']) ?></p>
                             </div>
                         </div>
                         <div class="flex items-center gap-md p-md bg-surface-container-low rounded-lg transition-colors hover:bg-surface-container-high">
@@ -199,7 +263,7 @@ $activePage = 'contact';
                             </div>
                             <div>
                                 <p class="text-label-sm font-label-sm text-outline uppercase tracking-wider">Call Us</p>
-                                <p class="text-body-md font-body-md font-bold">+95 786917400</p>
+                                <p class="text-body-md font-body-md font-bold"><?= shop_h($contactSettings['support_phone']) ?></p>
                             </div>
                         </div>
                         <div class="flex items-center gap-md p-md bg-surface-container-low rounded-lg transition-colors hover:bg-surface-container-high">
@@ -208,7 +272,7 @@ $activePage = 'contact';
                             </div>
                             <div>
                                 <p class="text-label-sm font-label-sm text-outline uppercase tracking-wider">Visit Us</p>
-                                <p class="text-body-md font-body-md font-bold">145/4 , Yangon</p>
+                                <p class="text-body-md font-body-md font-bold"><?= shop_h($contactSettings['support_address']) ?></p>
                             </div>
                         </div>
                     </div>
@@ -221,24 +285,24 @@ $activePage = 'contact';
                         <span class="inline-block px-4 py-1.5 rounded-full bg-tertiary-container text-on-tertiary-container text-label-sm font-label-sm mb-sm">Get in Touch</span>
                         <h3 class="text-headline-lg font-headline-lg text-primary">Send us a message</h3>
                     </div>
-                    <form class="space-y-lg">
+                    <form class="space-y-lg" method="post">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-lg">
                             <div class="space-y-xs">
                                 <label class="text-label-md font-label-md text-on-surface ml-2">Name</label>
-                                <input class="w-full px-lg py-md rounded-full bg-surface-container-lowest border-none ring-2 ring-transparent focus:ring-primary focus:bg-white transition-all text-body-md outline-none placeholder:text-outline-variant" placeholder="Your sweet name" type="text" />
+                                <input class="w-full px-lg py-md rounded-full bg-surface-container-lowest border-none ring-2 ring-transparent focus:ring-primary focus:bg-white transition-all text-body-md outline-none placeholder:text-outline-variant" maxlength="150" name="full_name" placeholder="Your sweet name" required type="text" value="<?= shop_h($formState['full_name']) ?>" />
                             </div>
                             <div class="space-y-xs">
                                 <label class="text-label-md font-label-md text-on-surface ml-2">Email</label>
-                                <input class="w-full px-lg py-md rounded-full bg-surface-container-lowest border-none ring-2 ring-transparent focus:ring-primary focus:bg-white transition-all text-body-md outline-none placeholder:text-outline-variant" placeholder="example@luv.com" type="email" />
+                                <input class="w-full px-lg py-md rounded-full bg-surface-container-lowest border-none ring-2 ring-transparent focus:ring-primary focus:bg-white transition-all text-body-md outline-none placeholder:text-outline-variant" maxlength="255" name="email" placeholder="example@luv.com" required type="email" value="<?= shop_h($formState['email']) ?>" />
                             </div>
                         </div>
                         <div class="space-y-xs">
                             <label class="text-label-md font-label-md text-on-surface ml-2">Subject</label>
-                            <input class="w-full px-lg py-md rounded-full bg-surface-container-lowest border-none ring-2 ring-transparent focus:ring-primary focus:bg-white transition-all text-body-md outline-none placeholder:text-outline-variant" placeholder="What's on your mind?" type="text" />
+                            <input class="w-full px-lg py-md rounded-full bg-surface-container-lowest border-none ring-2 ring-transparent focus:ring-primary focus:bg-white transition-all text-body-md outline-none placeholder:text-outline-variant" maxlength="200" name="subject" placeholder="What's on your mind?" required type="text" value="<?= shop_h($formState['subject']) ?>" />
                         </div>
                         <div class="space-y-xs">
                             <label class="text-label-md font-label-md text-on-surface ml-2">Message</label>
-                            <textarea class="w-full px-lg py-md rounded-lg bg-surface-container-lowest border-none ring-2 ring-transparent focus:ring-primary focus:bg-white transition-all text-body-md outline-none placeholder:text-outline-variant resize-none" placeholder="Write your message here..." rows="5"></textarea>
+                            <textarea class="w-full px-lg py-md rounded-lg bg-surface-container-lowest border-none ring-2 ring-transparent focus:ring-primary focus:bg-white transition-all text-body-md outline-none placeholder:text-outline-variant resize-none" maxlength="5000" name="message" placeholder="Write your message here..." required rows="5"><?= shop_h($formState['message']) ?></textarea>
                         </div>
                         <div class="pt-md">
                             <button class="w-full md:w-auto px-xl py-lg bg-primary text-white font-label-md text-label-md rounded-full flex items-center justify-center gap-sm shadow-lg spring-hover spring-active soft-pill-inner-glow transition-all" type="submit">
@@ -265,26 +329,26 @@ $activePage = 'contact';
     <?php require_once __DIR__ . '/../Templates/footer.php'; ?>
     <!-- BottomNavBar (Mobile only) -->
     <nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 pb-safe py-3 bg-surface-container-low border-t border-outline-variant/30 shadow-[0_-4px_12px_rgba(120,85,94,0.08)] rounded-t-lg">
-        <div class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors">
+        <a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors" data-ajax="true" href="Home.php">
             <span class="material-symbols-outlined" data-icon="home">home</span>
             <span class="text-label-sm font-label-sm">Home</span>
-        </div>
-        <div class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors">
+        </a>
+        <a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors" data-ajax="true" href="shop.php">
             <span class="material-symbols-outlined" data-icon="storefront">storefront</span>
             <span class="text-label-sm font-label-sm">Shop</span>
-        </div>
-        <div class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1.5 transition-all duration-300 ease-out scale-90">
+        </a>
+        <a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1.5 transition-all duration-300 ease-out scale-90" data-ajax="true" href="contactUs.php">
             <span class="material-symbols-outlined" data-icon="chat_bubble" style="font-variation-settings: 'FILL' 1;">chat_bubble</span>
             <span class="text-label-sm font-label-sm">Contact</span>
-        </div>
-        <div class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors">
+        </a>
+        <a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors" data-ajax="true" href="../Auth/login.php">
             <span class="material-symbols-outlined" data-icon="login">login</span>
             <span class="text-label-sm font-label-sm">Login</span>
-        </div>
-        <div class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors">
+        </a>
+        <a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors" href="profile.php">
             <span class="material-symbols-outlined" data-icon="person">person</span>
             <span class="text-label-sm font-label-sm">Profile</span>
-        </div>
+        </a>
     </nav>
 </body>
 
