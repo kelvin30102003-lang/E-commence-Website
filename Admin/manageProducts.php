@@ -7,6 +7,7 @@ require_once __DIR__ . '/includes/admin_layout.php';
 
 admin_start_session();
 $admin = admin_require_auth('adminLogin.php');
+admin_page_cache_start($admin, 'products', ADMIN_PAGE_CACHE_TTL_SECONDS);
 
 $pdo = admin_db();
 admin_ensure_tables($pdo);
@@ -87,10 +88,12 @@ $baseQuery = buildFilterQuery($queryFilters);
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Manage Products - LuvShop Admin</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&amp;family=Quicksand:wght@500;600;700&amp;display=swap" rel="stylesheet" />
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet" />
-    <script defer src="../Assect/js/site-ajax.js"></script>
+    <?php admin_render_critical_css(); ?>
+    <?php $adminCssHref = admin_css_href(); ?>
+<?php if ($adminCssHref !== null): ?>
+    <link href="<?= admin_html($adminCssHref) ?>" rel="stylesheet"/>
+<?php endif; ?>
+    <link href="<?= admin_html(admin_material_symbols_href()) ?>" rel="stylesheet"/>
     <style>
         body { background-color: #fbf9f8; font-family: 'Plus Jakarta Sans', sans-serif; -webkit-font-smoothing: antialiased; }
         .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
@@ -344,7 +347,7 @@ admin_render_sidebar($admin, 'products');
                                     <div class="flex items-center gap-3">
                                         <div class="w-12 h-12 rounded-lg bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
                                             <?php if ((string)$product['image'] !== ''): ?>
-                                                <img alt="<?= admin_html((string)$product['name']) ?>" class="w-full h-full object-cover" src="<?= admin_html((string)$product['image']) ?>" />
+                                                <img alt="<?= admin_html((string)$product['name']) ?>" class="w-full h-full object-cover" decoding="async" fetchpriority="low" height="48" loading="lazy" src="<?= admin_html((string)$product['image']) ?>" width="48" />
                                             <?php else: ?>
                                                 <span class="material-symbols-outlined text-slate-400">inventory_2</span>
                                             <?php endif; ?>
@@ -549,6 +552,7 @@ admin_render_sidebar($admin, 'products');
 </script>
 </body>
 </html>
+<?php admin_page_cache_finish(); ?>
 
 <?php
 
@@ -1093,26 +1097,53 @@ function toggleVariant(PDO $pdo): int
 
 function fetchAllCategories(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('products_categories', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
+
     if (!admin_table_exists($pdo, 'categories')) {
         return [];
     }
 
     $rows = $pdo->query('SELECT id, name FROM categories ORDER BY name ASC')->fetchAll();
-    return is_array($rows) ? $rows : [];
+    $result = is_array($rows) ? $rows : [];
+    admin_cache_store($cacheKey, $result, 60);
+    return $result;
 }
 
 function fetchAllBrands(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('products_brands', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
+
     if (!admin_table_exists($pdo, 'brands')) {
         return [];
     }
 
     $rows = $pdo->query('SELECT id, name FROM brands ORDER BY name ASC')->fetchAll();
-    return is_array($rows) ? $rows : [];
+    $result = is_array($rows) ? $rows : [];
+    admin_cache_store($cacheKey, $result, 60);
+    return $result;
 }
 
 function fetchProductStats(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('products_stats', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return array_merge([
+            'total_items' => 0,
+            'low_stock' => 0,
+            'active_items' => 0,
+            'draft_items' => 0,
+        ], $cached);
+    }
+
     $stats = [
         'total_items' => 0,
         'low_stock' => 0,
@@ -1134,11 +1165,25 @@ function fetchProductStats(PDO $pdo): array
             ->fetchColumn();
     }
 
+    admin_cache_store($cacheKey, $stats, ADMIN_PAGE_CACHE_TTL_SECONDS);
     return $stats;
 }
 
 function fetchProductList(PDO $pdo, array $filters): array
 {
+    $cacheKey = admin_cache_key('products_list', [
+        'filters' => $filters,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        $cachedRows = $cached['rows'] ?? null;
+        $cachedTotal = $cached['total'] ?? null;
+        if (is_array($cachedRows)) {
+            return ['rows' => $cachedRows, 'total' => (int)$cachedTotal];
+        }
+    }
+
     if (!admin_table_exists($pdo, 'products')) {
         return ['rows' => [], 'total' => 0];
     }
@@ -1183,7 +1228,9 @@ function fetchProductList(PDO $pdo, array $filters): array
         $rows = fetchProductCoreRows($pdo, $whereSql, $params, $limit, $offset);
         hydrateProductRowsWithVariantSummary($pdo, $rows);
         hydrateProductRowsWithImages($pdo, $rows);
-        return ['rows' => $rows, 'total' => $total];
+        $result = ['rows' => $rows, 'total' => $total];
+        admin_cache_store($cacheKey, $result, 15);
+        return $result;
     }
 
     if (!$variantsTableExists) {
@@ -1202,7 +1249,9 @@ function fetchProductList(PDO $pdo, array $filters): array
         $rows = fetchProductCoreRows($pdo, $whereSql, $params, $limit, $offset);
         hydrateProductRowsWithVariantSummary($pdo, $rows);
         hydrateProductRowsWithImages($pdo, $rows);
-        return ['rows' => $rows, 'total' => $total];
+        $result = ['rows' => $rows, 'total' => $total];
+        admin_cache_store($cacheKey, $result, 15);
+        return $result;
     }
 
     $stockWhere = $where;
@@ -1279,7 +1328,9 @@ function fetchProductList(PDO $pdo, array $filters): array
     $stmt->execute();
 
     $rows = $stmt->fetchAll();
-    return ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    $result = ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    admin_cache_store($cacheKey, $result, 15);
+    return $result;
 }
 
 function fetchProductCoreRows(PDO $pdo, string $whereSql, array $params, int $limit, int $offset): array
@@ -1438,10 +1489,25 @@ function hydrateProductRowsWithImages(PDO $pdo, array &$rows): void
 
 function fetchProductById(PDO $pdo, int $productId): ?array
 {
+    if ($productId <= 0) {
+        return null;
+    }
+
+    $cacheKey = admin_cache_key('products_detail', [
+        'product_id' => $productId,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached)) {
+        return is_array($cached) ? $cached : null;
+    }
+
     $stmt = $pdo->prepare('SELECT * FROM products WHERE id = :id LIMIT 1');
     $stmt->execute([':id' => $productId]);
     $row = $stmt->fetch();
-    return is_array($row) ? $row : null;
+    $result = is_array($row) ? $row : null;
+    admin_cache_store($cacheKey, $result, ADMIN_PAGE_CACHE_TTL_SECONDS);
+    return $result;
 }
 
 function fetchVariantsByProductId(PDO $pdo, int $productId): array
@@ -1450,10 +1516,21 @@ function fetchVariantsByProductId(PDO $pdo, int $productId): array
         return [];
     }
 
+    $cacheKey = admin_cache_key('products_variants', [
+        'product_id' => $productId,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
+
     $stmt = $pdo->prepare('SELECT * FROM product_variants WHERE product_id = :product_id ORDER BY id ASC');
     $stmt->execute([':product_id' => $productId]);
     $rows = $stmt->fetchAll();
-    return is_array($rows) ? $rows : [];
+    $result = is_array($rows) ? $rows : [];
+    admin_cache_store($cacheKey, $result, ADMIN_PAGE_CACHE_TTL_SECONDS);
+    return $result;
 }
 
 function fetchVariantById(PDO $pdo, int $variantId): ?array
@@ -1462,10 +1539,21 @@ function fetchVariantById(PDO $pdo, int $variantId): ?array
         return null;
     }
 
+    $cacheKey = admin_cache_key('products_variant_detail', [
+        'variant_id' => $variantId,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached)) {
+        return is_array($cached) ? $cached : null;
+    }
+
     $stmt = $pdo->prepare('SELECT * FROM product_variants WHERE id = :id LIMIT 1');
     $stmt->execute([':id' => $variantId]);
     $row = $stmt->fetch();
-    return is_array($row) ? $row : null;
+    $result = is_array($row) ? $row : null;
+    admin_cache_store($cacheKey, $result, ADMIN_PAGE_CACHE_TTL_SECONDS);
+    return $result;
 }
 
 function buildUniqueProductSlug(PDO $pdo, string $text, ?int $excludeId): string
@@ -1811,3 +1899,6 @@ function productStatusBadgeClass(string $status): string
         default => 'bg-slate-100 text-slate-700',
     };
 }
+
+
+

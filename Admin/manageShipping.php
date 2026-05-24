@@ -7,6 +7,7 @@ require_once __DIR__ . '/includes/admin_layout.php';
 
 admin_start_session();
 $admin = admin_require_auth('adminLogin.php');
+admin_page_cache_start($admin, 'shipping', ADMIN_PAGE_CACHE_TTL_SECONDS);
 
 $pdo = admin_db();
 admin_ensure_tables($pdo);
@@ -72,55 +73,13 @@ $endRow = $totalRows === 0 ? 0 : min($totalRows, $queryFilters['page'] * $queryF
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>Shipping Management | LuvShop Admin</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
-    <script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    colors: {
-                        "primary": "#78555e",
-                        "primary-container": "#ffd1dc",
-                        "secondary": "#2f6a3f",
-                        "secondary-container": "#b2f2bb",
-                        "tertiary-container": "#e9ddab",
-                        "surface": "#fbf9f8",
-                        "surface-container": "#efeded",
-                        "surface-container-low": "#f5f3f3",
-                        "surface-container-lowest": "#ffffff",
-                        "surface-container-high": "#eae8e7",
-                        "surface-container-highest": "#e4e2e2",
-                        "on-surface": "#1b1c1c",
-                        "on-surface-variant": "#4f4446",
-                        "outline-variant": "#d3c3c5",
-                        "error": "#ba1a1a",
-                        "error-container": "#ffdad6",
-                        "on-primary": "#ffffff",
-                        "on-primary-container": "#7a5761",
-                        "on-secondary-container": "#357044",
-                        "on-tertiary-container": "#696139",
-                        "on-error-container": "#93000a"
-                    },
-                    borderRadius: {
-                        DEFAULT: "1rem",
-                        lg: "2rem",
-                        xl: "3rem",
-                        full: "9999px"
-                    },
-                    fontFamily: {
-                        "headline-lg": ["Quicksand"],
-                        "headline-md": ["Quicksand"],
-                        "body-md": ["Plus Jakarta Sans"],
-                        "label-md": ["Plus Jakarta Sans"],
-                        "label-sm": ["Plus Jakarta Sans"]
-                    }
-                }
-            }
-        };
-    </script>
-    <style>
+    <?php admin_render_critical_css(); ?>
+    <?php $adminCssHref = admin_css_href(); ?>
+<?php if ($adminCssHref !== null): ?>
+    <link href="<?= admin_html($adminCssHref) ?>" rel="stylesheet"/>
+<?php endif; ?>
+    <link href="<?= admin_html(admin_material_symbols_href()) ?>" rel="stylesheet"/>
+<style>
         body {
             background: #fbf9f8;
             font-family: "Plus Jakarta Sans", sans-serif;
@@ -415,6 +374,7 @@ $endRow = $totalRows === 0 ? 0 : min($totalRows, $queryFilters['page'] * $queryF
 </main>
 </body>
 </html>
+<?php admin_page_cache_finish(); ?>
 
 <?php
 
@@ -639,6 +599,12 @@ function handleShippingPostActions(PDO $pdo, array $admin, array $editableStatus
 
 function fetchShippingStats(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('shipping_stats', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return array_merge(defaultShippingStats(), $cached);
+    }
+
     $stats = defaultShippingStats();
 
     $statusExpression = "COALESCE(s.status, CASE WHEN o.shipping_status = 'not_shipped' THEN 'preparing' ELSE o.shipping_status END)";
@@ -677,6 +643,7 @@ function fetchShippingStats(PDO $pdo): array
     $stats['pending_assignment'] = (int)($row['pending_assignment'] ?? 0);
     $stats['shipping_revenue'] = (float)($row['shipping_revenue'] ?? 0.0);
 
+    admin_cache_store($cacheKey, $stats, ADMIN_PAGE_CACHE_TTL_SECONDS);
     return $stats;
 }
 
@@ -687,6 +654,22 @@ function fetchShippingList(
     bool $usersTableExists,
     bool $addressesTableExists
 ): array {
+    $cacheKey = admin_cache_key('shipping_list', [
+        'filters' => $filters,
+        'shipments_table_exists' => $shipmentsTableExists,
+        'users_table_exists' => $usersTableExists,
+        'addresses_table_exists' => $addressesTableExists,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        $cachedRows = $cached['rows'] ?? null;
+        $cachedTotal = $cached['total'] ?? null;
+        if (is_array($cachedRows)) {
+            return ['rows' => $cachedRows, 'total' => (int)$cachedTotal];
+        }
+    }
+
     $where = ['1=1'];
     $params = [];
 
@@ -799,7 +782,9 @@ function fetchShippingList(
     $resultRows = is_array($rows) ? $rows : [];
     $resultRows = hydrateShippingAddressRows($pdo, $resultRows, $addressesTableExists);
 
-    return ['rows' => $resultRows, 'total' => $total];
+    $result = ['rows' => $resultRows, 'total' => $total];
+    admin_cache_store($cacheKey, $result, 15);
+    return $result;
 }
 
 function hydrateShippingAddressRows(PDO $pdo, array $rows, bool $addressesTableExists): array
@@ -860,6 +845,16 @@ function fetchDefaultAddressMap(PDO $pdo, array $userIds): array
         return [];
     }
 
+    sort($userIds);
+    $cacheKey = admin_cache_key('shipping_default_address_map', [
+        'user_ids' => $userIds,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
+
     $placeholders = implode(', ', array_fill(0, count($userIds), '?'));
     $sql = "
         SELECT
@@ -910,6 +905,7 @@ function fetchDefaultAddressMap(PDO $pdo, array $userIds): array
         ];
     }
 
+    admin_cache_store($cacheKey, $map, ADMIN_PAGE_CACHE_TTL_SECONDS);
     return $map;
 }
 
@@ -1081,6 +1077,12 @@ function normalizeOrderStatusForShipment(string $orderShippingStatus): string
 
 function fetchCourierOptions(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('shipping_courier_options', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
+
     $rows = $pdo->query(
         "SELECT DISTINCT TRIM(courier_name) AS courier_name
          FROM shipments
@@ -1101,6 +1103,7 @@ function fetchCourierOptions(PDO $pdo): array
         }
     }
 
+    admin_cache_store($cacheKey, $options, 60);
     return $options;
 }
 
@@ -1324,3 +1327,6 @@ function buildShippingFilterQuery(array $filters): string
 
     return $query === '' ? '' : '?' . $query;
 }
+
+
+

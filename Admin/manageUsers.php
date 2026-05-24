@@ -7,6 +7,7 @@ require_once __DIR__ . '/includes/admin_layout.php';
 
 admin_start_session();
 $admin = admin_require_auth('adminLogin.php');
+admin_page_cache_start($admin, 'users', ADMIN_PAGE_CACHE_TTL_SECONDS);
 
 $pdo = admin_db();
 admin_ensure_tables($pdo);
@@ -51,9 +52,12 @@ $baseQuery = buildUserManagementFilterQuery($queryFilters);
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>User Management | LuvShop Admin</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <?php admin_render_critical_css(); ?>
+    <?php $adminCssHref = admin_css_href(); ?>
+<?php if ($adminCssHref !== null): ?>
+    <link href="<?= admin_html($adminCssHref) ?>" rel="stylesheet"/>
+<?php endif; ?>
+    <link href="<?= admin_html(admin_material_symbols_href()) ?>" rel="stylesheet"/>
     <style>
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -62,31 +66,6 @@ $baseQuery = buildUserManagementFilterQuery($queryFilters);
             box-shadow: 0 10px 30px -5px rgba(120, 85, 94, 0.08);
         }
     </style>
-    <script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    colors: {
-                        "primary": "#78555e",
-                        "primary-container": "#ffd1dc",
-                        "secondary-container": "#b2f2bb",
-                        "surface": "#fbf9f8",
-                        "surface-container-low": "#f5f3f3",
-                        "surface-container-lowest": "#ffffff",
-                        "surface-container": "#efeded",
-                        "outline-variant": "#d3c3c5",
-                        "on-surface": "#1b1c1c",
-                        "on-surface-variant": "#4f4446",
-                        "error-container": "#ffdad6",
-                        "on-error-container": "#93000a",
-                        "on-secondary-container": "#357044",
-                        "on-primary": "#ffffff"
-                    }
-                }
-            }
-        };
-    </script>
 </head>
 <body class="bg-surface text-on-surface">
 <?php admin_render_sidebar($admin, 'users'); ?>
@@ -176,7 +155,7 @@ $baseQuery = buildUserManagementFilterQuery($queryFilters);
                                 <div class="flex items-center gap-3">
                                     <div class="w-12 h-12 rounded-2xl overflow-hidden shadow-sm bg-primary-container flex items-center justify-center text-primary font-semibold">
                                         <?php if ($avatar !== ''): ?>
-                                            <img alt="<?= admin_html((string)$user['name']) ?>" class="w-full h-full object-cover" src="<?= admin_html($avatar) ?>"/>
+                                            <img alt="<?= admin_html((string)$user['name']) ?>" class="w-full h-full object-cover" decoding="async" fetchpriority="low" height="48" loading="lazy" src="<?= admin_html($avatar) ?>" width="48"/>
                                         <?php else: ?>
                                             <?= admin_html(initialsLabel((string)$user['name'])) ?>
                                         <?php endif; ?>
@@ -282,6 +261,7 @@ $baseQuery = buildUserManagementFilterQuery($queryFilters);
 
 </body>
 </html>
+<?php admin_page_cache_finish(); ?>
 
 <?php
 
@@ -320,14 +300,9 @@ function ensureTableColumn(PDO $pdo, string $table, string $column, string $defi
 
 function tableColumnExists(PDO $pdo, string $table, string $column): bool
 {
-    $statement = $pdo->prepare(
-        'SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table_name AND column_name = :column_name'
-    );
-    $statement->execute([
-        ':table_name' => $table,
-        ':column_name' => $column,
-    ]);
-    return ((int)$statement->fetchColumn()) > 0;
+    static $columnCache = [];
+
+    return admin_table_has_columns($pdo, $table, [$column], $columnCache);
 }
 
 function handleUserManagementPostActions(PDO $pdo, array $currentAdmin): void
@@ -397,6 +372,16 @@ function toggleStoreUserBlock(PDO $pdo): int
 
 function fetchUserManagementStats(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('users_stats', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return array_merge([
+            'new_this_month' => 0,
+            'repeat_rate' => 0.0,
+            'avg_lifetime_value' => 0.0,
+        ], $cached);
+    }
+
     $stats = [
         'new_this_month' => 0,
         'repeat_rate' => 0.0,
@@ -446,11 +431,25 @@ function fetchUserManagementStats(PDO $pdo): array
         $stats['avg_lifetime_value'] = (float)($summary['avg_lifetime'] ?? 0.0);
     }
 
+    admin_cache_store($cacheKey, $stats, ADMIN_PAGE_CACHE_TTL_SECONDS);
     return $stats;
 }
 
 function fetchStoreUsers(PDO $pdo, array $filters): array
 {
+    $cacheKey = admin_cache_key('users_list', [
+        'filters' => $filters,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        $cachedRows = $cached['rows'] ?? null;
+        $cachedTotal = $cached['total'] ?? null;
+        if (is_array($cachedRows)) {
+            return ['rows' => $cachedRows, 'total' => (int)$cachedTotal];
+        }
+    }
+
     if (!admin_table_exists($pdo, 'users')) {
         return ['rows' => [], 'total' => 0];
     }
@@ -524,7 +523,9 @@ function fetchStoreUsers(PDO $pdo, array $filters): array
     $stmt->execute();
 
     $rows = $stmt->fetchAll();
-    return ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    $result = ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    admin_cache_store($cacheKey, $result, 15);
+    return $result;
 }
 
 function fetchStoreUserById(PDO $pdo, int $id): ?array
@@ -533,10 +534,21 @@ function fetchStoreUserById(PDO $pdo, int $id): ?array
         return null;
     }
 
+    $cacheKey = admin_cache_key('users_detail', [
+        'user_id' => $id,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached)) {
+        return is_array($cached) ? $cached : null;
+    }
+
     $stmt = $pdo->prepare('SELECT * FROM users WHERE id = :id LIMIT 1');
     $stmt->execute([':id' => $id]);
     $row = $stmt->fetch();
-    return is_array($row) ? $row : null;
+    $result = is_array($row) ? $row : null;
+    admin_cache_store($cacheKey, $result, ADMIN_PAGE_CACHE_TTL_SECONDS);
+    return $result;
 }
 
 function setUserManagementFlash(string $type, string $message): void
@@ -637,3 +649,6 @@ function formatDateTimeLabel(string $value): string
         return $value;
     }
 }
+
+
+

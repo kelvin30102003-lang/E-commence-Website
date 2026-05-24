@@ -3,10 +3,182 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../DB/railway_mysql.php';
+require_once __DIR__ . '/../../DB/redis_cache.php';
 
 const ADMIN_SESSION_KEY = 'luvshop_admin_auth';
 const ADMIN_CSRF_KEY = 'luvshop_admin_csrf';
 const ADMIN_SCHEMA_CACHE_TTL_SECONDS = 43200;
+const ADMIN_METADATA_CACHE_TTL_SECONDS = 43200;
+const ADMIN_PAGE_CACHE_TTL_SECONDS = 60;
+
+function admin_cache_key(string $namespace, array $payload = []): string
+{
+    return 'luvshop:admin:' . $namespace . ':' . hash('sha256', serialize($payload));
+}
+
+function admin_cache_fetch(string $key, mixed &$payload): bool
+{
+    $payload = null;
+
+    $redis = railway_redis_client();
+    if (!$redis instanceof Redis) {
+        return false;
+    }
+
+    try {
+        $raw = $redis->get($key);
+    } catch (Throwable) {
+        return false;
+    }
+
+    if (!is_string($raw) || $raw === '') {
+        return false;
+    }
+
+    $decoded = @unserialize($raw, ['allowed_classes' => false]);
+    if (!is_array($decoded) || ($decoded['__admin_cache'] ?? 0) !== 1 || !array_key_exists('payload', $decoded)) {
+        return false;
+    }
+
+    $payload = $decoded['payload'];
+    return true;
+}
+
+function admin_cache_store(string $key, mixed $payload, int $ttlSeconds): void
+{
+    $redis = railway_redis_client();
+    if (!$redis instanceof Redis) {
+        return;
+    }
+
+    $wrapped = [
+        '__admin_cache' => 1,
+        'payload' => $payload,
+    ];
+    $ttl = max(1, $ttlSeconds);
+    $encoded = serialize($wrapped);
+
+    try {
+        $redis->setex($key, $ttl, $encoded);
+    } catch (Throwable) {
+    }
+}
+
+function admin_cache_delete_pattern(string $pattern): void
+{
+    $redis = railway_redis_client();
+    if (!$redis instanceof Redis) {
+        return;
+    }
+
+    try {
+        $keys = $redis->keys($pattern);
+        if (is_array($keys) && count($keys) > 0) {
+            $redis->del($keys);
+        }
+    } catch (Throwable) {
+    }
+}
+
+function admin_clear_page_cache(): void
+{
+    admin_cache_delete_pattern('luvshop:admin:page_html:*');
+}
+
+function admin_clear_runtime_cache(): void
+{
+    admin_cache_delete_pattern('luvshop:admin:*:*');
+}
+
+function admin_has_pending_flash_message(): bool
+{
+    admin_start_session();
+
+    foreach ($_SESSION as $key => $value) {
+        if (is_string($key) && str_starts_with($key, 'admin_') && str_ends_with($key, '_flash')) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function admin_page_cache_start(array $admin, string $namespace, int $ttlSeconds = ADMIN_PAGE_CACHE_TTL_SECONDS): void
+{
+    if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'GET') {
+        return;
+    }
+
+    if (isset($_GET['export']) || isset($_GET['download'])) {
+        return;
+    }
+
+    if (admin_has_pending_flash_message()) {
+        return;
+    }
+
+    $adminId = (int)($admin['id'] ?? 0);
+    if ($adminId <= 0) {
+        return;
+    }
+
+    $requestUri = (string)($_SERVER['REQUEST_URI'] ?? '');
+    if ($requestUri === '') {
+        $requestUri = basename((string)($_SERVER['SCRIPT_NAME'] ?? $namespace));
+        $queryString = (string)($_SERVER['QUERY_STRING'] ?? '');
+        if ($queryString !== '') {
+            $requestUri .= '?' . $queryString;
+        }
+    }
+
+    $cacheKey = admin_cache_key('page_html', [
+        'namespace' => $namespace,
+        'admin_id' => $adminId,
+        'session' => session_id(),
+        'uri' => $requestUri,
+        'v' => 1,
+    ]);
+
+    $cachedHtml = null;
+    if (admin_cache_fetch($cacheKey, $cachedHtml) && is_string($cachedHtml) && $cachedHtml !== '') {
+        header('X-LuvShop-Admin-Page-Cache: HIT');
+        echo $cachedHtml;
+        exit;
+    }
+
+    $GLOBALS['__luvshop_admin_page_cache_key'] = $cacheKey;
+    $GLOBALS['__luvshop_admin_page_cache_ttl'] = max(1, $ttlSeconds);
+    ob_start();
+}
+
+function admin_page_cache_finish(): void
+{
+    $cacheKey = $GLOBALS['__luvshop_admin_page_cache_key'] ?? null;
+    $ttlSeconds = max(1, (int)($GLOBALS['__luvshop_admin_page_cache_ttl'] ?? 20));
+    if (!is_string($cacheKey) || $cacheKey === '') {
+        return;
+    }
+
+    unset($GLOBALS['__luvshop_admin_page_cache_key'], $GLOBALS['__luvshop_admin_page_cache_ttl']);
+
+    if (ob_get_level() <= 0) {
+        return;
+    }
+
+    $html = ob_get_clean();
+    if (!is_string($html) || $html === '') {
+        return;
+    }
+
+    echo $html;
+
+    $responseCode = http_response_code();
+    if ($responseCode !== false && $responseCode >= 400) {
+        return;
+    }
+
+    admin_cache_store($cacheKey, $html, $ttlSeconds);
+}
 
 function admin_db(): PDO
 {
@@ -253,10 +425,26 @@ function admin_log_activity(PDO $pdo, ?int $adminId, string $action, ?string $de
         ':details' => $details,
         ':ip_address' => $ipAddress,
     ]);
+
+    admin_clear_runtime_cache();
 }
 
 function admin_fetch_dashboard_metrics(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('dashboard_metrics', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return array_merge([
+            'total_sales' => 0.0,
+            'today_sales' => 0.0,
+            'total_orders' => 0,
+            'pending_orders' => 0,
+            'total_customers' => 0,
+            'low_stock_variants' => 0,
+            'active_products' => 0,
+        ], $cached);
+    }
+
     $metrics = [
         'total_sales' => 0.0,
         'today_sales' => 0.0,
@@ -311,24 +499,57 @@ function admin_fetch_dashboard_metrics(PDO $pdo): array
             ->fetchColumn();
     }
 
+    admin_cache_store($cacheKey, $metrics, 30);
     return $metrics;
 }
 
-function admin_fetch_recent_orders(PDO $pdo, int $limit = 8): array
+function admin_fetch_recent_orders(PDO $pdo, int $limit = 8, string $query = ''): array
 {
     if (!admin_table_exists($pdo, 'orders')) {
         return [];
     }
 
     $limit = max(1, min($limit, 50));
+    $query = trim($query);
+    $cacheKey = admin_cache_key('dashboard_recent_orders', [
+        'limit' => $limit,
+        'q' => $query,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
 
-    $usersJoin = admin_table_exists($pdo, 'users')
+    $hasUsers = admin_table_exists($pdo, 'users');
+    $usersJoin = $hasUsers
         ? "LEFT JOIN users u ON u.id = o.user_id"
         : '';
 
-    $customerSelect = admin_table_exists($pdo, 'users')
+    $customerSelect = $hasUsers
         ? "COALESCE(NULLIF(u.name, ''), NULLIF(u.email, ''), 'Guest')"
         : "'Guest'";
+
+    $filters = [];
+    $params = [];
+    if ($query !== '') {
+        $filters[] = '(
+            o.order_number LIKE :q_order_number
+            OR o.order_status LIKE :q_order_status
+            OR o.payment_status LIKE :q_payment_status
+            ' . ($hasUsers ? 'OR u.name LIKE :q_user_name OR u.email LIKE :q_user_email' : '') . '
+        )';
+        $queryLike = '%' . $query . '%';
+        $params[':q_order_number'] = $queryLike;
+        $params[':q_order_status'] = $queryLike;
+        $params[':q_payment_status'] = $queryLike;
+        if ($hasUsers) {
+            $params[':q_user_name'] = $queryLike;
+            $params[':q_user_email'] = $queryLike;
+        }
+    }
+
+    $whereSql = count($filters) > 0 ? 'WHERE ' . implode(' AND ', $filters) : '';
 
     $sql = "
         SELECT
@@ -340,17 +561,37 @@ function admin_fetch_recent_orders(PDO $pdo, int $limit = 8): array
             {$customerSelect} AS customer_name
         FROM orders o
         {$usersJoin}
+        {$whereSql}
         ORDER BY COALESCE(o.placed_at, o.created_at) DESC
-        LIMIT {$limit}
+        LIMIT :limit
     ";
 
-    $rows = $pdo->query($sql)->fetchAll();
+    $statement = $pdo->prepare($sql);
+    foreach ($params as $paramKey => $paramValue) {
+        $statement->bindValue($paramKey, (string)$paramValue);
+    }
+    $statement->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $statement->execute();
+    $rows = $statement->fetchAll();
 
-    return is_array($rows) ? $rows : [];
+    $result = is_array($rows) ? $rows : [];
+    admin_cache_store($cacheKey, $result, 20);
+    return $result;
 }
 
 function admin_fetch_order_status_summary(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('dashboard_order_status', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return array_merge([
+            'completed' => 0,
+            'pending' => 0,
+            'cancelled' => 0,
+            'total' => 0,
+        ], $cached);
+    }
+
     $summary = [
         'completed' => 0,
         'pending' => 0,
@@ -381,12 +622,26 @@ function admin_fetch_order_status_summary(PDO $pdo): array
     $summary['pending'] = (int)($row['pending'] ?? 0);
     $summary['cancelled'] = (int)($row['cancelled'] ?? 0);
 
+    admin_cache_store($cacheKey, $summary, 30);
     return $summary;
 }
 
 function admin_fetch_revenue_trend(PDO $pdo, int $weeks = 4): array
 {
     $weeks = max(2, min($weeks, 12));
+    $cacheKey = admin_cache_key('dashboard_revenue_trend', [
+        'weeks' => $weeks,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return array_merge([
+            'labels' => [],
+            'values' => [],
+            'max' => 0.0,
+            'has_data' => false,
+        ], $cached);
+    }
 
     $result = [
         'labels' => [],
@@ -466,6 +721,7 @@ function admin_fetch_revenue_trend(PDO $pdo, int $weeks = 4): array
 
     $result['has_data'] = $result['max'] > 0;
 
+    admin_cache_store($cacheKey, $result, 45);
     return $result;
 }
 
@@ -476,6 +732,14 @@ function admin_fetch_activity_logs(PDO $pdo, int $limit = 100): array
     }
 
     $limit = max(1, min($limit, 500));
+    $cacheKey = admin_cache_key('admin_activity_logs', [
+        'limit' => $limit,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
 
     $sql = "
         SELECT
@@ -493,25 +757,81 @@ function admin_fetch_activity_logs(PDO $pdo, int $limit = 100): array
     ";
 
     $rows = $pdo->query($sql)->fetchAll();
-
-    return is_array($rows) ? $rows : [];
+    $result = is_array($rows) ? $rows : [];
+    admin_cache_store($cacheKey, $result, 15);
+    return $result;
 }
 
 function admin_table_exists(PDO $pdo, string $tableName): bool
 {
     static $cache = [];
+    static $tableListLoaded = false;
 
-    if (array_key_exists($tableName, $cache)) {
-        return $cache[$tableName];
+    $tableName = strtolower(trim($tableName));
+    if ($tableName === '') {
+        return false;
     }
 
+    if (array_key_exists($tableName, $cache)) {
+        return (bool)$cache[$tableName];
+    }
+
+    if (!$tableListLoaded) {
+        $tableListLoaded = true;
+
+        $tableListCacheKey = admin_cache_key('meta_table_list', ['v' => 1]);
+        $cachedTableList = null;
+        if (admin_cache_fetch($tableListCacheKey, $cachedTableList) && is_array($cachedTableList)) {
+            foreach ($cachedTableList as $cachedTableName) {
+                $normalizedTableName = strtolower(trim((string)$cachedTableName));
+                if ($normalizedTableName !== '') {
+                    $cache[$normalizedTableName] = true;
+                }
+            }
+        } else {
+            try {
+                $rows = $pdo->query(
+                    'SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()'
+                )->fetchAll();
+                if (is_array($rows)) {
+                    $tableList = [];
+                    foreach ($rows as $row) {
+                        $normalizedTableName = strtolower(trim((string)($row['table_name'] ?? '')));
+                        if ($normalizedTableName === '') {
+                            continue;
+                        }
+                        $cache[$normalizedTableName] = true;
+                        $tableList[] = $normalizedTableName;
+                    }
+                    if (count($tableList) > 0) {
+                        admin_cache_store($tableListCacheKey, array_values(array_unique($tableList)), 3600);
+                    }
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        if (array_key_exists($tableName, $cache)) {
+            return true;
+        }
+    }
+
+    $singleTableCacheKey = admin_cache_key('meta_table_exists', ['table' => $tableName, 'v' => 1]);
+    $cachedTableExists = null;
+    if (admin_cache_fetch($singleTableCacheKey, $cachedTableExists)) {
+        $exists = (bool)$cachedTableExists;
+        $cache[$tableName] = $exists;
+        return $exists;
+    }
+
+    $exists = false;
     $statement = $pdo->prepare(
         'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = :table_name'
     );
     $statement->execute([':table_name' => $tableName]);
-
     $exists = ((int)$statement->fetchColumn()) > 0;
     $cache[$tableName] = $exists;
+    admin_cache_store($singleTableCacheKey, $exists, 3600);
 
     return $exists;
 }
@@ -635,13 +955,28 @@ function admin_ensure_mysql_performance_indexes(PDO $pdo): void
 function admin_fetch_table_index_metadata(PDO $pdo, array $tableNames): array
 {
     $metadata = [];
-    if (count($tableNames) === 0) {
+    $normalizedTableNames = array_values(array_unique(array_filter(array_map(
+        static fn (mixed $tableName): string => strtolower(trim((string)$tableName)),
+        $tableNames
+    ))));
+    sort($normalizedTableNames);
+
+    if (count($normalizedTableNames) === 0) {
         return $metadata;
     }
 
+    $cacheKey = admin_cache_key('meta_index_metadata', [
+        'tables' => $normalizedTableNames,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
+
     $quotedTables = [];
-    foreach ($tableNames as $tableName) {
-        $quotedTables[] = $pdo->quote((string)$tableName);
+    foreach ($normalizedTableNames as $tableName) {
+        $quotedTables[] = $pdo->quote($tableName);
     }
     $inList = implode(', ', $quotedTables);
 
@@ -692,11 +1027,28 @@ function admin_fetch_table_index_metadata(PDO $pdo, array $tableNames): array
         }
     }
 
+    admin_cache_store($cacheKey, $metadata, ADMIN_METADATA_CACHE_TTL_SECONDS);
     return $metadata;
 }
 
 function admin_table_has_columns(PDO $pdo, string $tableName, array $requiredColumns, array &$cache): bool
 {
+    $tableName = strtolower(trim($tableName));
+    if ($tableName === '') {
+        return false;
+    }
+
+    if (!isset($cache[$tableName])) {
+        $cacheKey = admin_cache_key('meta_table_columns', [
+            'table' => $tableName,
+            'v' => 1,
+        ]);
+        $cached = null;
+        if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+            $cache[$tableName] = $cached;
+        }
+    }
+
     if (!isset($cache[$tableName])) {
         $statement = $pdo->prepare(
             'SELECT column_name AS column_name_key FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table_name'
@@ -713,6 +1065,8 @@ function admin_table_has_columns(PDO $pdo, string $tableName, array $requiredCol
                 }
             }
         }
+
+        admin_cache_store($cacheKey, $cache[$tableName], ADMIN_METADATA_CACHE_TTL_SECONDS);
     }
 
     foreach ($requiredColumns as $column) {

@@ -7,6 +7,7 @@ require_once __DIR__ . '/includes/admin_layout.php';
 
 admin_start_session();
 $admin = admin_require_auth('adminLogin.php');
+admin_page_cache_start($admin, 'coupons', ADMIN_PAGE_CACHE_TTL_SECONDS);
 
 $pdo = admin_db();
 admin_ensure_tables($pdo);
@@ -72,9 +73,12 @@ $endRow = $totalRows === 0 ? 0 : min($totalRows, $queryFilters['page'] * $queryF
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>Coupon Management | LuvShop Admin</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=Quicksand:wght@600;700&amp;display=swap" rel="stylesheet"/>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <?php admin_render_critical_css(); ?>
+    <?php $adminCssHref = admin_css_href(); ?>
+<?php if ($adminCssHref !== null): ?>
+    <link href="<?= admin_html($adminCssHref) ?>" rel="stylesheet"/>
+<?php endif; ?>
+    <link href="<?= admin_html(admin_material_symbols_href()) ?>" rel="stylesheet"/>
     <style>
         body {
             font-family: "Plus Jakarta Sans", sans-serif;
@@ -351,11 +355,16 @@ $endRow = $totalRows === 0 ? 0 : min($totalRows, $queryFilters['page'] * $queryF
 </main>
 </body>
 </html>
+<?php admin_page_cache_finish(); ?>
 
 <?php
 
 function ensureCouponsTable(PDO $pdo): void
 {
+    if (admin_table_exists($pdo, 'coupons')) {
+        return;
+    }
+
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS coupons (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -535,6 +544,17 @@ function buildCouponPayloadFromPost(array $discountTypeOptions): array
 
 function fetchCouponStats(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('coupons_stats', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return array_merge([
+            'total' => 0,
+            'active' => 0,
+            'expired' => 0,
+            'inactive' => 0,
+        ], $cached);
+    }
+
     $stats = [
         'total' => 0,
         'active' => 0,
@@ -560,11 +580,25 @@ function fetchCouponStats(PDO $pdo): array
     $stats['active'] = (int)($row['active'] ?? 0);
     $stats['expired'] = (int)($row['expired'] ?? 0);
     $stats['inactive'] = (int)($row['inactive'] ?? 0);
+    admin_cache_store($cacheKey, $stats, ADMIN_PAGE_CACHE_TTL_SECONDS);
     return $stats;
 }
 
 function fetchCouponList(PDO $pdo, array $filters): array
 {
+    $cacheKey = admin_cache_key('coupons_list', [
+        'filters' => $filters,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        $cachedRows = $cached['rows'] ?? null;
+        $cachedTotal = $cached['total'] ?? null;
+        if (is_array($cachedRows)) {
+            return ['rows' => $cachedRows, 'total' => (int)$cachedTotal];
+        }
+    }
+
     $params = [];
     $where = ['1=1'];
 
@@ -626,13 +660,24 @@ function fetchCouponList(PDO $pdo, array $filters): array
     $statement->execute();
     $rows = $statement->fetchAll();
 
-    return ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    $result = ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    admin_cache_store($cacheKey, $result, 15);
+    return $result;
 }
 
 function fetchCouponById(PDO $pdo, int $couponId): ?array
 {
     if ($couponId <= 0) {
         return null;
+    }
+
+    $cacheKey = admin_cache_key('coupons_detail', [
+        'coupon_id' => $couponId,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached)) {
+        return is_array($cached) ? $cached : null;
     }
 
     $statement = $pdo->prepare(
@@ -656,7 +701,9 @@ function fetchCouponById(PDO $pdo, int $couponId): ?array
     $statement->execute([':id' => $couponId]);
     $row = $statement->fetch();
 
-    return is_array($row) ? $row : null;
+    $result = is_array($row) ? $row : null;
+    admin_cache_store($cacheKey, $result, ADMIN_PAGE_CACHE_TTL_SECONDS);
+    return $result;
 }
 
 function parseMoneyInput(string $input, string $label): float
@@ -834,4 +881,7 @@ function buildCouponFilterQuery(array $filters): string
     ]);
     return $query === '' ? '' : '?' . $query;
 }
+
+
+
 

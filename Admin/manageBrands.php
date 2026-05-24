@@ -7,6 +7,7 @@ require_once __DIR__ . '/includes/admin_layout.php';
 
 admin_start_session();
 $admin = admin_require_auth('adminLogin.php');
+admin_page_cache_start($admin, 'brands', ADMIN_PAGE_CACHE_TTL_SECONDS);
 
 $pdo = admin_db();
 admin_ensure_tables($pdo);
@@ -67,9 +68,12 @@ $endRow = $totalRows === 0 ? 0 : min($totalRows, $queryFilters['page'] * $queryF
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>Brand Management | LuvShop Admin</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=Quicksand:wght@600;700&amp;display=swap" rel="stylesheet"/>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <?php admin_render_critical_css(); ?>
+    <?php $adminCssHref = admin_css_href(); ?>
+<?php if ($adminCssHref !== null): ?>
+    <link href="<?= admin_html($adminCssHref) ?>" rel="stylesheet"/>
+<?php endif; ?>
+    <link href="<?= admin_html(admin_material_symbols_href()) ?>" rel="stylesheet"/>
     <style>
         body {
             font-family: "Plus Jakarta Sans", sans-serif;
@@ -204,7 +208,7 @@ $endRow = $totalRows === 0 ? 0 : min($totalRows, $queryFilters['page'] * $queryF
                     <?php if ($editingBrand !== null && trim((string)$editingBrand['logo']) !== ''): ?>
                         <div class="md:col-span-2 lg:col-span-3">
                             <p class="text-sm font-semibold mb-2">Current Logo</p>
-                            <img alt="<?= admin_html((string)$editingBrand['name']) ?>" class="h-16 w-16 rounded-xl object-cover border border-slate-200" src="<?= admin_html((string)$editingBrand['logo']) ?>"/>
+                            <img alt="<?= admin_html((string)$editingBrand['name']) ?>" class="h-16 w-16 rounded-xl object-cover border border-slate-200" decoding="async" fetchpriority="low" height="64" loading="lazy" src="<?= admin_html((string)$editingBrand['logo']) ?>" width="64"/>
                         </div>
                     <?php endif; ?>
 
@@ -253,7 +257,7 @@ $endRow = $totalRows === 0 ? 0 : min($totalRows, $queryFilters['page'] * $queryF
                                 <div class="flex items-center gap-3">
                                     <div class="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
                                         <?php if (trim((string)$brand['logo']) !== ''): ?>
-                                            <img alt="<?= admin_html((string)$brand['name']) ?>" class="w-full h-full object-cover" src="<?= admin_html((string)$brand['logo']) ?>"/>
+                                            <img alt="<?= admin_html((string)$brand['name']) ?>" class="w-full h-full object-cover" decoding="async" fetchpriority="low" height="48" loading="lazy" src="<?= admin_html((string)$brand['logo']) ?>" width="48"/>
                                         <?php else: ?>
                                             <span class="text-sm font-semibold text-slate-600"><?= admin_html(brandInitial((string)$brand['name'])) ?></span>
                                         <?php endif; ?>
@@ -325,11 +329,16 @@ $endRow = $totalRows === 0 ? 0 : min($totalRows, $queryFilters['page'] * $queryF
 </main>
 </body>
 </html>
+<?php admin_page_cache_finish(); ?>
 
 <?php
 
 function ensureBrandsTable(PDO $pdo): void
 {
+    if (admin_table_exists($pdo, 'brands')) {
+        return;
+    }
+
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS brands (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -482,6 +491,16 @@ function handleBrandPostActions(PDO $pdo, array $admin): void
 
 function fetchBrandStats(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('brands_stats', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return array_merge([
+            'total' => 0,
+            'active' => 0,
+            'inactive' => 0,
+        ], $cached);
+    }
+
     $stats = [
         'total' => 0,
         'active' => 0,
@@ -503,11 +522,25 @@ function fetchBrandStats(PDO $pdo): array
     $stats['total'] = (int)($row['total'] ?? 0);
     $stats['active'] = (int)($row['active'] ?? 0);
     $stats['inactive'] = (int)($row['inactive'] ?? 0);
+    admin_cache_store($cacheKey, $stats, ADMIN_PAGE_CACHE_TTL_SECONDS);
     return $stats;
 }
 
 function fetchBrandList(PDO $pdo, array $filters): array
 {
+    $cacheKey = admin_cache_key('brands_list', [
+        'filters' => $filters,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        $cachedRows = $cached['rows'] ?? null;
+        $cachedTotal = $cached['total'] ?? null;
+        if (is_array($cachedRows)) {
+            return ['rows' => $cachedRows, 'total' => (int)$cachedTotal];
+        }
+    }
+
     $params = [];
     $where = ['1=1'];
 
@@ -571,13 +604,24 @@ function fetchBrandList(PDO $pdo, array $filters): array
     $statement->execute();
     $rows = $statement->fetchAll();
 
-    return ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    $result = ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    admin_cache_store($cacheKey, $result, 15);
+    return $result;
 }
 
 function fetchBrandById(PDO $pdo, int $brandId): ?array
 {
     if ($brandId <= 0) {
         return null;
+    }
+
+    $cacheKey = admin_cache_key('brands_detail', [
+        'brand_id' => $brandId,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached)) {
+        return is_array($cached) ? $cached : null;
     }
 
     $statement = $pdo->prepare(
@@ -589,7 +633,9 @@ function fetchBrandById(PDO $pdo, int $brandId): ?array
     $statement->execute([':id' => $brandId]);
     $row = $statement->fetch();
 
-    return is_array($row) ? $row : null;
+    $result = is_array($row) ? $row : null;
+    admin_cache_store($cacheKey, $result, ADMIN_PAGE_CACHE_TTL_SECONDS);
+    return $result;
 }
 
 function buildUniqueBrandSlug(PDO $pdo, string $rawValue, ?int $excludeId): string
@@ -837,3 +883,6 @@ function buildBrandFilterQuery(array $filters): string
 
     return $query === '' ? '' : '?' . $query;
 }
+
+
+

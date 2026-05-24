@@ -49,6 +49,102 @@ function admin_render_sidebar(array $admin, string $activeKey = 'dashboard', arr
     echo '<span class="material-symbols-outlined">logout</span><span>Logout</span></a>';
     echo '</div>';
     echo '</aside>';
+
+    $ajaxFilePath = __DIR__ . '/../../Assect/js/site-ajax.js';
+    $ajaxVersion = is_file($ajaxFilePath) ? (string)filemtime($ajaxFilePath) : '1';
+    echo '<script defer src="../Assect/js/site-ajax.js?v=' . admin_html($ajaxVersion) . '"></script>';
+}
+
+function admin_vite_asset_href(string $input): ?string
+{
+    static $manifest = null;
+    static $loaded = false;
+
+    if (!$loaded) {
+        $loaded = true;
+        $manifestPath = __DIR__ . '/../../backend/public/build/manifest.json';
+        if (is_file($manifestPath) && is_readable($manifestPath)) {
+            $raw = @file_get_contents($manifestPath);
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $manifest = $decoded;
+                }
+            }
+        }
+    }
+
+    if (!is_array($manifest)) {
+        return null;
+    }
+
+    $entry = $manifest[$input] ?? null;
+    if (!is_array($entry)) {
+        return null;
+    }
+
+    $file = $entry['file'] ?? null;
+    if (!is_string($file) || trim($file) === '') {
+        return null;
+    }
+
+    return '../backend/public/build/' . ltrim($file, '/');
+}
+
+function admin_css_href(): ?string
+{
+    $href = admin_vite_asset_href('resources/css/admin.css');
+    if ($href !== null) {
+        return $href;
+    }
+
+    $assetsDir = __DIR__ . '/../../backend/public/build/assets';
+    if (!is_dir($assetsDir)) {
+        return null;
+    }
+
+    $matches = glob($assetsDir . '/admin-*.css');
+    if (!is_array($matches) || count($matches) === 0) {
+        return null;
+    }
+
+    usort($matches, static function (string $a, string $b): int {
+        return filemtime($b) <=> filemtime($a);
+    });
+
+    $latest = basename($matches[0]);
+    if ($latest === '') {
+        return null;
+    }
+
+    return '../backend/public/build/assets/' . $latest;
+}
+
+function admin_material_symbols_href(): string
+{
+    $assetPath = __DIR__ . '/../../Assect/css/material-symbols-outlined.css';
+    $version = is_file($assetPath) ? (string)filemtime($assetPath) : '1';
+
+    return '../Assect/css/material-symbols-outlined.css?v=' . $version;
+}
+
+function admin_render_critical_css(): void
+{
+    echo '<style id="admin-critical-css">';
+    echo 'html{background:#fbf9f8;}';
+    echo 'body{margin:0;min-height:100vh;background:#fbf9f8;color:#1b1c1c;font-family:"Plus Jakarta Sans","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}';
+    echo '[data-admin-sidebar="true"]{position:fixed;left:0;top:0;z-index:50;display:flex;width:16rem;height:100vh;flex-direction:column;background:#fff;padding-block:1.5rem;box-shadow:0 4px 18px rgba(15,23,42,.08);}';
+    echo '#app-main{min-height:100vh;margin-left:16rem;background:#fbf9f8;}';
+    echo '#app-main>header{height:4rem;}';
+    echo '.material-symbols-outlined{display:inline-flex;width:1em;min-width:1em;height:1em;overflow:hidden;line-height:1;vertical-align:middle;align-items:center;justify-content:center;letter-spacing:0;white-space:nowrap;}';
+    echo ':where(input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea){box-sizing:border-box;display:block;min-height:2.5rem;width:100%;border:1px solid #d3c3c5;border-radius:.75rem;background:#fff;color:#1b1c1c;padding:.625rem .875rem;font:inherit;line-height:1.25rem;}';
+    echo ':where(input[type=file]){box-sizing:border-box;display:block;width:100%;border:1px solid #d3c3c5;border-radius:.75rem;background:#fff;color:#1b1c1c;padding:.5rem .875rem;font:inherit;line-height:1.5rem;}';
+    echo ':where(input[type=checkbox],input[type=radio]){box-sizing:border-box;width:1rem;height:1rem;border:1px solid #d3c3c5;background:#fff;vertical-align:middle;}';
+    echo ':where(input:focus,select:focus,textarea:focus){outline:0;border-color:#78555e;box-shadow:0 0 0 3px rgba(255,209,220,.85);}';
+    echo '.max-w-md{max-width:28rem!important;}@media(min-width:48rem){.md\\:max-w-md{max-width:28rem!important;}}';
+    echo '.admin-ajax-loading #app-main{opacity:.72;}';
+    echo '@media(max-width:767px){[data-admin-sidebar="true"]{position:relative;width:100%;height:auto;}#app-main{margin-left:0;}}';
+    echo '</style>';
 }
 
 function admin_render_header(array $admin, array $options = []): void

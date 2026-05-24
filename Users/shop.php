@@ -17,6 +17,8 @@ $products = [];
 $totalRows = 0;
 $totalPages = 1;
 $currentPage = 1;
+$pagePayloadCacheKey = '';
+$pagePayloadCacheHit = false;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $postAction = trim((string)($_POST['action'] ?? ''));
@@ -40,37 +42,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-try {
-    $pdo = shop_db();
-    $categories = shop_fetch_categories($pdo);
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    $pagePayloadCacheKey = shop_cache_key('shop_page_payload', [
+        'q' => (string)$filters['q'],
+        'category' => (string)$filters['category'],
+        'sort' => (string)$filters['sort'],
+        'page' => (int)$filters['page'],
+        'per_page' => (int)$filters['per_page'],
+        'v' => 1,
+    ]);
 
-    $listData = shop_fetch_products($pdo, $filters);
-    $products = $listData['rows'];
-    $totalRows = (int)$listData['total'];
-    $totalPages = max(1, (int)ceil($totalRows / $filters['per_page']));
-    $currentPage = min($filters['page'], $totalPages);
+    $cachedPayload = null;
+    if (shop_cache_fetch($pagePayloadCacheKey, $cachedPayload) && is_array($cachedPayload)) {
+        $cachedCategories = $cachedPayload['categories'] ?? null;
+        $cachedProducts = $cachedPayload['products'] ?? null;
+        $cachedFilters = $cachedPayload['filters'] ?? null;
+        if (is_array($cachedCategories) && is_array($cachedProducts) && is_array($cachedFilters)) {
+            $filters = shop_normalize_filters($cachedFilters);
+            $categories = $cachedCategories;
+            $products = $cachedProducts;
+            $totalRows = max(0, (int)($cachedPayload['total_rows'] ?? 0));
+            $totalPages = max(1, (int)($cachedPayload['total_pages'] ?? 1));
+            $currentPage = max(1, min((int)($cachedPayload['current_page'] ?? 1), $totalPages));
+            $pagePayloadCacheHit = true;
+        }
+    }
+}
 
-    if ($currentPage !== $filters['page']) {
-        $filters['page'] = $currentPage;
+if (!$pagePayloadCacheHit) {
+    try {
+        $pdo = shop_db();
+        $categories = shop_fetch_categories($pdo);
+
         $listData = shop_fetch_products($pdo, $filters);
         $products = $listData['rows'];
+        $totalRows = (int)$listData['total'];
+        $totalPages = max(1, (int)ceil($totalRows / $filters['per_page']));
+        $currentPage = min($filters['page'], $totalPages);
+
+        if ($currentPage !== $filters['page']) {
+            $filters['page'] = $currentPage;
+            $listData = shop_fetch_products($pdo, $filters);
+            $products = $listData['rows'];
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $pagePayloadCacheKey !== '') {
+            shop_cache_store($pagePayloadCacheKey, [
+                'filters' => $filters,
+                'categories' => $categories,
+                'products' => $products,
+                'total_rows' => $totalRows,
+                'total_pages' => $totalPages,
+                'current_page' => $currentPage,
+            ], 600);
+        }
+    } catch (Throwable $exception) {
+        $dbError = $exception->getMessage();
     }
-} catch (Throwable $exception) {
-    $dbError = $exception->getMessage();
 }
 
 $startRow = $totalRows === 0 ? 0 : (($currentPage - 1) * $filters['per_page']) + 1;
 $endRow = $totalRows === 0 ? 0 : min($currentPage * $filters['per_page'], $totalRows);
+$isAjaxRequest = shop_is_ajax_request();
 
 ?>
+<?php if (!$isAjaxRequest): ?>
 <!DOCTYPE html>
 
 <html class="light" lang="en"><head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <style>
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -181,6 +227,8 @@ $endRow = $totalRows === 0 ? 0 : min($currentPage * $filters['per_page'], $total
 <body class="bg-background text-on-surface font-body-md overflow-x-hidden">
 <?php require_once __DIR__ . '/../Templates/header.php'; ?>
 <main class="pt-24 pb-xl px-4 md:px-margin-desktop max-w-[1280px] mx-auto" id="app-main">
+<?php endif; ?>
+<section data-shop-ajax-root>
     <?php if ($dbError !== null): ?>
         <section class="mb-lg rounded-xl border border-red-200 bg-error-container px-md py-sm text-sm text-on-error-container">
             DB connection error: <?= shop_h($dbError) ?>
@@ -234,7 +282,7 @@ $endRow = $totalRows === 0 ? 0 : min($currentPage * $filters['per_page'], $total
 
 <!-- Search and Filter Section -->
 <section class="mb-xl flex flex-col md:flex-row md:items-center justify-between gap-md">
-<form class="relative w-full md:max-w-md group" method="get">
+<form class="relative w-full md:max-w-md group" data-shop-filter-form method="get">
 <input class="w-full h-14 pl-12 pr-14 rounded-full bg-surface-container-low border-none focus:ring-2 focus:ring-primary transition-all duration-300 text-body-md placeholder-outline shadow-sm group-hover:shadow-md" name="q" placeholder="Search for cuteness..." type="text" value="<?= shop_h($filters['q']) ?>"/>
 <input name="category" type="hidden" value="<?= shop_h($filters['category']) ?>"/>
 <input name="sort" type="hidden" value="<?= shop_h($filters['sort']) ?>"/>
@@ -403,6 +451,8 @@ $endRow = $totalRows === 0 ? 0 : min($currentPage * $filters['per_page'], $total
 <span class="material-symbols-outlined" data-icon="chevron_right">chevron_right</span>
 </a>
 </nav>
+</section>
+<?php if (!$isAjaxRequest): ?>
 </main>
 <!-- NavigationDrawer (Mobile Sidebar) -->
 <div class="hidden fixed inset-0 z-[60] flex pointer-events-none" id="drawer">
@@ -476,53 +526,278 @@ $endRow = $totalRows === 0 ? 0 : min($currentPage * $filters['per_page'], $total
 })();
 
 (() => {
-    const galleryCards = document.querySelectorAll('[data-product-gallery]');
-    galleryCards.forEach((card) => {
-        const raw = card.getAttribute('data-product-gallery');
-        if (!raw) {
+    const initGalleryCards = (scope = document) => {
+        const existingIntervals = Array.isArray(window.shopGalleryIntervals) ? window.shopGalleryIntervals : [];
+        existingIntervals.forEach((intervalId) => {
+            window.clearInterval(intervalId);
+        });
+        window.shopGalleryIntervals = [];
+
+        const galleryCards = scope.querySelectorAll('[data-product-gallery]');
+        galleryCards.forEach((card) => {
+            const raw = card.getAttribute('data-product-gallery');
+            if (!raw) {
+                return;
+            }
+
+            let parsed;
+            try {
+                parsed = JSON.parse(raw);
+            } catch (error) {
+                return;
+            }
+
+            if (!Array.isArray(parsed)) {
+                return;
+            }
+
+            const images = parsed
+                .filter((value) => typeof value === 'string')
+                .map((value) => value.trim())
+                .filter((value) => value !== '');
+            if (images.length < 2) {
+                return;
+            }
+
+            const imageElement = card.querySelector('img[data-gallery-image]');
+            if (!imageElement || imageElement.dataset.galleryReady === '1') {
+                return;
+            }
+            imageElement.dataset.galleryReady = '1';
+
+            let index = 0;
+            const rotate = () => {
+                index = (index + 1) % images.length;
+                imageElement.classList.add('opacity-0');
+                window.setTimeout(() => {
+                    imageElement.src = images[index];
+                    imageElement.classList.remove('opacity-0');
+                }, 160);
+            };
+
+            const intervalId = window.setInterval(rotate, 2600);
+            window.shopGalleryIntervals.push(intervalId);
+        });
+    };
+
+    window.shopInitProductGallery = initGalleryCards;
+    initGalleryCards(document);
+})();
+
+(() => {
+    if (!window.fetch || !window.DOMParser || !window.history || !window.history.pushState) {
+        return;
+    }
+
+    let root = document.querySelector('[data-shop-ajax-root]');
+    if (!root) {
+        return;
+    }
+
+    const normalizePath = (path) => path.replace(/\/+$/, '').toLowerCase();
+    const isShopUrl = (url) => (
+        url.origin === window.location.origin
+        && normalizePath(url.pathname).endsWith('/shop.php')
+    );
+
+    const toAjaxUrl = (urlString) => {
+        const url = new URL(urlString, window.location.href);
+        url.searchParams.set('ajax', '1');
+        return url;
+    };
+
+    const prefetchedUrls = window.shopPrefetchedUrls instanceof Set ? window.shopPrefetchedUrls : new Set();
+    window.shopPrefetchedUrls = prefetchedUrls;
+
+    const prefetchShopState = (urlString) => {
+        const destination = new URL(urlString, window.location.href);
+        if (!isShopUrl(destination)) {
             return;
         }
 
-        let parsed;
-        try {
-            parsed = JSON.parse(raw);
-        } catch (error) {
+        const normalized = destination.toString();
+        if (prefetchedUrls.has(normalized)) {
+            return;
+        }
+        prefetchedUrls.add(normalized);
+
+        void fetch(toAjaxUrl(normalized), {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        }).catch(() => {
+        });
+    };
+
+    const scheduleNeighborPrefetch = () => {
+        if (!root) {
+            return;
+        }
+        const pagination = root.querySelector('nav.mt-xl');
+        if (!pagination) {
             return;
         }
 
-        if (!Array.isArray(parsed)) {
+        const links = Array.from(pagination.querySelectorAll('a[href]'));
+        const nextLink = links.find((link) => (
+            link.querySelector('[data-icon="chevron_right"]')
+            && !link.classList.contains('pointer-events-none')
+        ));
+        if (!(nextLink instanceof HTMLAnchorElement)) {
             return;
         }
 
-        const images = parsed
-            .filter((value) => typeof value === 'string')
-            .map((value) => value.trim())
-            .filter((value) => value !== '');
-        if (images.length < 2) {
-            return;
-        }
+        const runner = () => {
+            prefetchShopState(nextLink.href);
 
-        const imageElement = card.querySelector('img[data-gallery-image]');
-        if (!imageElement || imageElement.dataset.galleryReady === '1') {
-            return;
-        }
-        imageElement.dataset.galleryReady = '1';
-
-        let index = 0;
-        const rotate = () => {
-            index = (index + 1) % images.length;
-            imageElement.classList.add('opacity-0');
-            window.setTimeout(() => {
-                imageElement.src = images[index];
-                imageElement.classList.remove('opacity-0');
-            }, 160);
+            try {
+                const nextUrl = new URL(nextLink.href, window.location.href);
+                const pageValue = parseInt(nextUrl.searchParams.get('page') || '', 10);
+                if (!Number.isNaN(pageValue) && pageValue > 0) {
+                    nextUrl.searchParams.set('page', String(pageValue + 1));
+                    prefetchShopState(nextUrl.toString());
+                }
+            } catch (error) {
+            }
         };
 
-        window.setInterval(rotate, 2600);
+        if (document.visibilityState === 'visible') {
+            window.setTimeout(runner, 80);
+            return;
+        }
+
+        if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(runner, { timeout: 1000 });
+            return;
+        }
+        window.setTimeout(runner, 260);
+    };
+
+    const setLoadingState = (isLoading) => {
+        if (!root) {
+            return;
+        }
+        root.classList.toggle('opacity-60', isLoading);
+        root.classList.toggle('pointer-events-none', isLoading);
+    };
+
+    const updateFromResponse = (html) => {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const nextRoot = doc.querySelector('[data-shop-ajax-root]');
+        if (!nextRoot) {
+            return false;
+        }
+
+        root.replaceWith(nextRoot);
+        root = nextRoot;
+
+        if (typeof window.shopInitProductGallery === 'function') {
+            window.shopInitProductGallery(root);
+        }
+        scheduleNeighborPrefetch();
+        return true;
+    };
+
+    const loadShopState = async (urlString, pushHistory = true, smoothScroll = true) => {
+        const destination = new URL(urlString, window.location.href);
+        if (!isShopUrl(destination)) {
+            window.location.assign(destination.toString());
+            return;
+        }
+
+        setLoadingState(true);
+        try {
+            const response = await fetch(toAjaxUrl(destination.toString()), {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+            if (!response.ok) {
+                throw new Error('Shop AJAX request failed.');
+            }
+
+            const html = await response.text();
+            if (!updateFromResponse(html)) {
+                throw new Error('Shop AJAX payload was invalid.');
+            }
+
+            if (pushHistory) {
+                window.history.pushState({ shopAjax: true }, '', destination.toString());
+            }
+            if (smoothScroll) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        } catch (error) {
+            window.location.assign(destination.toString());
+        } finally {
+            setLoadingState(false);
+        }
+    };
+
+    document.addEventListener('click', (event) => {
+        if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return;
+        }
+
+        const target = event.target;
+        if (!(target instanceof Element)) {
+            return;
+        }
+
+        const link = target.closest('a[href]');
+        if (!(link instanceof HTMLAnchorElement) || !root.contains(link)) {
+            return;
+        }
+        if (link.target === '_blank' || link.hasAttribute('download')) {
+            return;
+        }
+
+        const url = new URL(link.href, window.location.href);
+        if (!isShopUrl(url)) {
+            return;
+        }
+
+        event.preventDefault();
+        void loadShopState(url.toString(), true, true);
+    }, true);
+
+    document.addEventListener('submit', (event) => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement) || !root.contains(form) || !form.matches('[data-shop-filter-form]')) {
+            return;
+        }
+
+        event.preventDefault();
+        const action = form.getAttribute('action') || 'shop.php';
+        const url = new URL(action, window.location.href);
+        if (!isShopUrl(url)) {
+            form.submit();
+            return;
+        }
+
+        const params = new URLSearchParams(new FormData(form));
+        url.search = params.toString();
+        void loadShopState(url.toString(), true, true);
     });
+
+    window.addEventListener('popstate', () => {
+        const current = new URL(window.location.href);
+        if (!isShopUrl(current)) {
+            return;
+        }
+        void loadShopState(current.toString(), false, false);
+    });
+
+    scheduleNeighborPrefetch();
 })();
 </script>
 </body></html>
+<?php endif; ?>
 
 <?php
 

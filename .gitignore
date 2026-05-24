@@ -13,6 +13,7 @@
 DB/supabase_config.php
 Auth/firebase_config.php
 DB/railway_mysql_config.php
+DB/redis_config.php
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

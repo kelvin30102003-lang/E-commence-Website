@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../DB/railway_mysql.php';
+require_once __DIR__ . '/../../DB/redis_cache.php';
 
 if (!defined('SHOP_CART_SESSION_KEY')) {
     define('SHOP_CART_SESSION_KEY', 'luvshop_cart');
@@ -10,15 +11,215 @@ if (!defined('SHOP_CART_SESSION_KEY')) {
 if (!defined('SHOP_CART_FLASH_KEY')) {
     define('SHOP_CART_FLASH_KEY', 'luvshop_cart_flash');
 }
+if (!defined('SHOP_USER_SESSION_KEY')) {
+    define('SHOP_USER_SESSION_KEY', 'luvshop_user');
+}
 
 function shop_db(): PDO
 {
     return railway_mysql_db();
 }
 
+function shop_is_ajax_request(): bool
+{
+    if ((string)($_GET['ajax'] ?? '') === '1') {
+        return true;
+    }
+
+    $requestedWith = strtolower(trim((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')));
+    return $requestedWith === 'xmlhttprequest';
+}
+
+function shop_cache_key(string $namespace, array $payload = []): string
+{
+    $encoded = serialize($payload);
+    return 'luvshop:' . $namespace . ':' . hash('sha256', $encoded);
+}
+
+function shop_cache_fetch(string $key, mixed &$payload): bool
+{
+    $payload = null;
+
+    $redis = railway_redis_client();
+    if (!$redis instanceof Redis) {
+        return false;
+    }
+
+    try {
+        $raw = $redis->get($key);
+    } catch (Throwable) {
+        return false;
+    }
+
+    if (!is_string($raw) || $raw === '') {
+        return false;
+    }
+
+    $decoded = @unserialize($raw, ['allowed_classes' => false]);
+    if (!is_array($decoded) || ($decoded['__shop_cache'] ?? 0) !== 1 || !array_key_exists('payload', $decoded)) {
+        // Backward compatibility for old JSON cache entries.
+        $decoded = json_decode($raw, true);
+    }
+    if (!is_array($decoded) || ($decoded['__shop_cache'] ?? 0) !== 1 || !array_key_exists('payload', $decoded)) {
+        return false;
+    }
+
+    $payload = $decoded['payload'];
+    return true;
+}
+
+function shop_cache_store(string $key, mixed $payload, int $ttlSeconds): void
+{
+    $redis = railway_redis_client();
+    if (!$redis instanceof Redis) {
+        return;
+    }
+
+    $ttl = max(1, $ttlSeconds);
+    $wrapped = [
+        '__shop_cache' => 1,
+        'payload' => $payload,
+    ];
+    $encoded = serialize($wrapped);
+
+    try {
+        $redis->setex($key, $ttl, $encoded);
+    } catch (Throwable) {
+    }
+}
+
+function shop_metadata_cache_ttl(): int
+{
+    return 3600;
+}
+
+function shop_local_asset_path(string $assetPath): string
+{
+    $assetPath = trim($assetPath);
+    if ($assetPath === '') {
+        return '';
+    }
+
+    $normalized = str_replace('\\', '/', $assetPath);
+    $usersDir = dirname(__DIR__);
+    $projectRoot = dirname($usersDir);
+
+    $candidates = [];
+    if (preg_match('/^[A-Za-z]:\//', $normalized) === 1) {
+        $candidates[] = $normalized;
+    } elseif (str_starts_with($normalized, '/')) {
+        $candidates[] = $projectRoot . '/' . ltrim($normalized, '/');
+    } elseif (str_starts_with($normalized, '../') || str_starts_with($normalized, './')) {
+        $candidates[] = $usersDir . '/' . $normalized;
+    } else {
+        $candidates[] = $usersDir . '/' . $normalized;
+        $candidates[] = $projectRoot . '/' . $normalized;
+    }
+
+    foreach ($candidates as $candidate) {
+        $filesystemPath = str_replace('/', DIRECTORY_SEPARATOR, $candidate);
+        if (is_file($filesystemPath)) {
+            return $filesystemPath;
+        }
+    }
+
+    return '';
+}
+
+function shop_prefer_webp_image(string $imagePath): string
+{
+    static $cache = [];
+
+    $imagePath = trim($imagePath);
+    if ($imagePath === '') {
+        return '';
+    }
+    if (array_key_exists($imagePath, $cache)) {
+        return $cache[$imagePath];
+    }
+
+    if (preg_match('#^(?:https?:)?//#i', $imagePath) === 1) {
+        $cache[$imagePath] = $imagePath;
+        return $imagePath;
+    }
+
+    $queryPos = strpos($imagePath, '?');
+    $pathPart = $queryPos === false ? $imagePath : substr($imagePath, 0, $queryPos);
+    $queryPart = $queryPos === false ? '' : substr($imagePath, $queryPos);
+
+    $extension = strtolower(pathinfo($pathPart, PATHINFO_EXTENSION));
+    if (!in_array($extension, ['jpg', 'jpeg', 'png'], true)) {
+        $cache[$imagePath] = $imagePath;
+        return $imagePath;
+    }
+
+    $webpPath = preg_replace('/\.(?:jpe?g|png)$/i', '.webp', $pathPart);
+    if (!is_string($webpPath) || trim($webpPath) === '') {
+        $cache[$imagePath] = $imagePath;
+        return $imagePath;
+    }
+
+    $webpFile = shop_local_asset_path($webpPath);
+    if ($webpFile !== '') {
+        $resolved = $webpPath . $queryPart;
+        $cache[$imagePath] = $resolved;
+        return $resolved;
+    }
+
+    $cache[$imagePath] = $imagePath;
+    return $imagePath;
+}
+
 function shop_table_exists(PDO $pdo, string $tableName): bool
 {
     static $cache = [];
+    static $allTablesLoaded = false;
+
+    $loadAllTables = static function () use ($pdo, &$cache, &$allTablesLoaded): void {
+        if ($allTablesLoaded) {
+            return;
+        }
+
+        $allTablesLoaded = true;
+        $listCacheKey = shop_cache_key('meta_table_list', ['v' => 1]);
+        $cachedTableList = null;
+        if (shop_cache_fetch($listCacheKey, $cachedTableList) && is_array($cachedTableList)) {
+            foreach ($cachedTableList as $cachedTableName) {
+                $normalizedName = strtolower(trim((string)$cachedTableName));
+                if ($normalizedName !== '') {
+                    $cache[$normalizedName] = true;
+                }
+            }
+            return;
+        }
+
+        try {
+            $statement = $pdo->query(
+                'SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()'
+            );
+            $rows = $statement->fetchAll();
+            $tableList = [];
+            if (is_array($rows)) {
+                foreach ($rows as $row) {
+                    $normalizedName = strtolower(trim((string)($row['table_name'] ?? '')));
+                    if ($normalizedName === '') {
+                        continue;
+                    }
+                    $cache[$normalizedName] = true;
+                    $tableList[] = $normalizedName;
+                }
+            }
+            if (count($tableList) > 0) {
+                shop_cache_store($listCacheKey, array_values(array_unique($tableList)), shop_metadata_cache_ttl());
+            }
+        } catch (Throwable) {
+            // Fall back to one-table lookup below if metadata preload fails.
+            $allTablesLoaded = false;
+        }
+    };
+
+    $loadAllTables();
+
     $key = strtolower(trim($tableName));
     if ($key === '') {
         return false;
@@ -28,18 +229,83 @@ function shop_table_exists(PDO $pdo, string $tableName): bool
         return $cache[$key];
     }
 
-    $statement = $pdo->prepare(
-        'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = :table_name'
-    );
-    $statement->execute([':table_name' => $tableName]);
-    $exists = ((int)$statement->fetchColumn()) > 0;
+    $cacheKey = shop_cache_key('meta_table_exists', ['table' => $key, 'v' => 1]);
+    $cached = null;
+    if (shop_cache_fetch($cacheKey, $cached)) {
+        $exists = (bool)$cached;
+        $cache[$key] = $exists;
+        return $exists;
+    }
+
+    $exists = false;
+    try {
+        $statement = $pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = :table_name'
+        );
+        $statement->execute([':table_name' => $tableName]);
+        $exists = ((int)$statement->fetchColumn()) > 0;
+    } catch (Throwable) {
+        $exists = false;
+    }
     $cache[$key] = $exists;
+    shop_cache_store($cacheKey, $exists, shop_metadata_cache_ttl());
     return $exists;
 }
 
 function shop_table_has_column(PDO $pdo, string $tableName, string $columnName): bool
 {
     static $cache = [];
+    static $columnsByTable = [];
+
+    $loadTableColumns = static function (string $normalizedTableName, string $originalTableName) use ($pdo, &$columnsByTable): void {
+        if (array_key_exists($normalizedTableName, $columnsByTable)) {
+            return;
+        }
+
+        $columnsByTable[$normalizedTableName] = [];
+        $listCacheKey = shop_cache_key('meta_table_columns', [
+            'table' => $normalizedTableName,
+            'v' => 1,
+        ]);
+        $cachedColumns = null;
+        if (shop_cache_fetch($listCacheKey, $cachedColumns) && is_array($cachedColumns)) {
+            $normalizedColumns = [];
+            foreach ($cachedColumns as $cachedColumnName) {
+                $normalizedColumn = strtolower(trim((string)$cachedColumnName));
+                if ($normalizedColumn !== '') {
+                    $normalizedColumns[] = $normalizedColumn;
+                }
+            }
+            $columnsByTable[$normalizedTableName] = array_values(array_unique($normalizedColumns));
+            return;
+        }
+
+        try {
+            $statement = $pdo->prepare(
+                'SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table_name'
+            );
+            $statement->execute([':table_name' => $originalTableName]);
+            $rows = $statement->fetchAll();
+
+            $columnList = [];
+            if (is_array($rows)) {
+                foreach ($rows as $row) {
+                    $normalizedColumn = strtolower(trim((string)($row['column_name'] ?? '')));
+                    if ($normalizedColumn !== '') {
+                        $columnList[] = $normalizedColumn;
+                    }
+                }
+            }
+            $columnList = array_values(array_unique($columnList));
+            $columnsByTable[$normalizedTableName] = $columnList;
+            if (count($columnList) > 0) {
+                shop_cache_store($listCacheKey, $columnList, shop_metadata_cache_ttl());
+            }
+        } catch (Throwable) {
+            $columnsByTable[$normalizedTableName] = [];
+        }
+    };
+
     $table = strtolower(trim($tableName));
     $column = strtolower(trim($columnName));
     if ($table === '' || $column === '') {
@@ -51,20 +317,48 @@ function shop_table_has_column(PDO $pdo, string $tableName, string $columnName):
         return $cache[$key];
     }
 
+    $cacheKey = shop_cache_key('meta_table_column_exists', [
+        'table' => $table,
+        'column' => $column,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (shop_cache_fetch($cacheKey, $cached)) {
+        $exists = (bool)$cached;
+        $cache[$key] = $exists;
+        return $exists;
+    }
+
     if (!shop_table_exists($pdo, $tableName)) {
         $cache[$key] = false;
+        shop_cache_store($cacheKey, false, shop_metadata_cache_ttl());
         return false;
     }
 
-    $statement = $pdo->prepare(
-        'SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table_name AND column_name = :column_name'
-    );
-    $statement->execute([
-        ':table_name' => $tableName,
-        ':column_name' => $columnName,
-    ]);
-    $exists = ((int)$statement->fetchColumn()) > 0;
+    $loadTableColumns($table, $tableName);
+    $tableColumns = $columnsByTable[$table] ?? [];
+    if (is_array($tableColumns) && count($tableColumns) > 0) {
+        $exists = in_array($column, $tableColumns, true);
+        $cache[$key] = $exists;
+        shop_cache_store($cacheKey, $exists, shop_metadata_cache_ttl());
+        return $exists;
+    }
+
+    $exists = false;
+    try {
+        $statement = $pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table_name AND column_name = :column_name'
+        );
+        $statement->execute([
+            ':table_name' => $tableName,
+            ':column_name' => $columnName,
+        ]);
+        $exists = ((int)$statement->fetchColumn()) > 0;
+    } catch (Throwable) {
+        $exists = false;
+    }
     $cache[$key] = $exists;
+    shop_cache_store($cacheKey, $exists, shop_metadata_cache_ttl());
     return $exists;
 }
 
@@ -87,6 +381,12 @@ function shop_normalize_filters(array $input): array
 
 function shop_fetch_categories(PDO $pdo): array
 {
+    $cacheKey = shop_cache_key('categories', ['active_only' => 1, 'v' => 1]);
+    $cached = null;
+    if (shop_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
+
     if (!shop_table_exists($pdo, 'categories') || !shop_table_exists($pdo, 'products')) {
         return [];
     }
@@ -107,13 +407,36 @@ function shop_fetch_categories(PDO $pdo): array
     ";
 
     $rows = $pdo->query($sql)->fetchAll();
-    return is_array($rows) ? $rows : [];
+    $result = is_array($rows) ? $rows : [];
+    shop_cache_store($cacheKey, $result, 180);
+    return $result;
 }
 
 function shop_fetch_products(PDO $pdo, array $filters): array
 {
     if (!shop_table_exists($pdo, 'products')) {
         return ['rows' => [], 'total' => 0];
+    }
+
+    $cachePayload = [
+        'q' => (string)($filters['q'] ?? ''),
+        'category' => (string)($filters['category'] ?? ''),
+        'sort' => (string)($filters['sort'] ?? 'newest'),
+        'page' => (int)($filters['page'] ?? 1),
+        'per_page' => (int)($filters['per_page'] ?? 12),
+        'v' => 1,
+    ];
+    $cacheKey = shop_cache_key('products', $cachePayload);
+    $cached = null;
+    if (shop_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        $cachedRows = $cached['rows'] ?? null;
+        $cachedTotal = $cached['total'] ?? null;
+        if (is_array($cachedRows)) {
+            return [
+                'rows' => $cachedRows,
+                'total' => (int)$cachedTotal,
+            ];
+        }
     }
 
     $hasCategories = shop_table_exists($pdo, 'categories');
@@ -179,8 +502,6 @@ function shop_fetch_products(PDO $pdo, array $filters): array
         FROM products p
         {$categoryJoin}
         {$brandJoin}
-        {$variantJoin}
-        {$imageJoin}
         WHERE {$whereSql}
     ";
     $countStatement = $pdo->prepare($countSql);
@@ -235,10 +556,12 @@ function shop_fetch_products(PDO $pdo, array $filters): array
     $rows = is_array($rows) ? $rows : [];
     shop_hydrate_products_with_images($pdo, $rows);
 
-    return [
+    $result = [
         'rows' => $rows,
         'total' => $total,
     ];
+    shop_cache_store($cacheKey, $result, 600);
+    return $result;
 }
 
 function shop_hydrate_products_with_images(PDO $pdo, array &$rows, int $maxImagesPerProduct = 8): void
@@ -250,7 +573,8 @@ function shop_hydrate_products_with_images(PDO $pdo, array &$rows, int $maxImage
     $maxImagesPerProduct = max(1, min(20, $maxImagesPerProduct));
 
     foreach ($rows as &$row) {
-        $primary = trim((string)($row['image'] ?? ''));
+        $primary = shop_prefer_webp_image(trim((string)($row['image'] ?? '')));
+        $row['image'] = $primary;
         $row['images'] = $primary !== '' ? [$primary] : [];
     }
     unset($row);
@@ -292,6 +616,7 @@ function shop_hydrate_products_with_images(PDO $pdo, array &$rows, int $maxImage
             if ($productId <= 0 || $image === '') {
                 continue;
             }
+            $image = shop_prefer_webp_image($image);
             if (!isset($imagesByProductId[$productId])) {
                 $imagesByProductId[$productId] = [];
             }
@@ -352,6 +677,16 @@ function shop_fetch_product_detail(PDO $pdo, string $slug = '', int $id = 0): ?a
     $id = max(0, $id);
     if ($slug === '' && $id <= 0) {
         return null;
+    }
+
+    $cacheKey = shop_cache_key('product_detail', [
+        'slug' => $slug,
+        'id' => $id,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (shop_cache_fetch($cacheKey, $cached)) {
+        return is_array($cached) ? $cached : null;
     }
 
     $hasCategories = shop_table_exists($pdo, 'categories');
@@ -441,14 +776,18 @@ function shop_fetch_product_detail(PDO $pdo, string $slug = '', int $id = 0): ?a
     $statement->execute();
     $row = $statement->fetch();
     if (!is_array($row)) {
+        shop_cache_store($cacheKey, null, 30);
         return null;
     }
 
     $productId = (int)$row['id'];
     $primaryImage = trim((string)($row['image'] ?? ''));
+    $primaryImage = shop_prefer_webp_image($primaryImage);
+    $row['image'] = $primaryImage;
     $row['images'] = shop_fetch_product_images($pdo, $productId, $primaryImage);
     $row['variants'] = shop_fetch_product_variants($pdo, $productId);
 
+    shop_cache_store($cacheKey, $row, 90);
     return $row;
 }
 
@@ -466,7 +805,7 @@ function shop_fetch_product_images(PDO $pdo, int $productId, string $primaryImag
             foreach ($rows as $row) {
                 $image = trim((string)($row['image'] ?? ''));
                 if ($image !== '') {
-                    $images[] = $image;
+                    $images[] = shop_prefer_webp_image($image);
                 }
             }
         }
@@ -474,7 +813,7 @@ function shop_fetch_product_images(PDO $pdo, int $productId, string $primaryImag
 
     $primaryImage = trim($primaryImage);
     if ($primaryImage !== '') {
-        array_unshift($images, $primaryImage);
+        array_unshift($images, shop_prefer_webp_image($primaryImage));
     }
 
     $images = array_values(array_unique($images));
@@ -513,6 +852,17 @@ function shop_fetch_related_products(PDO $pdo, int $productId, int $categoryId, 
     }
 
     $limit = max(1, min($limit, 12));
+    $cacheKey = shop_cache_key('related_products', [
+        'product_id' => $productId,
+        'category_id' => $categoryId,
+        'limit' => $limit,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (shop_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
+
     $hasCategories = shop_table_exists($pdo, 'categories');
     $hasBrands = shop_table_exists($pdo, 'brands');
     $hasVariants = shop_table_exists($pdo, 'product_variants');
@@ -579,7 +929,85 @@ function shop_fetch_related_products(PDO $pdo, int $productId, int $categoryId, 
     $statement->bindValue(':limit', $limit, PDO::PARAM_INT);
     $statement->execute();
     $rows = $statement->fetchAll();
-    return is_array($rows) ? $rows : [];
+    $result = is_array($rows) ? $rows : [];
+    foreach ($result as &$row) {
+        $row['image'] = shop_prefer_webp_image(trim((string)($row['image'] ?? '')));
+    }
+    unset($row);
+    shop_cache_store($cacheKey, $result, 90);
+    return $result;
+}
+
+function shop_fetch_product_reviews(PDO $pdo, int $productId, int $limit = 6): array
+{
+    if ($productId <= 0 || !shop_table_exists($pdo, 'reviews')) {
+        return [];
+    }
+    if (!shop_table_has_column($pdo, 'reviews', 'product_id')) {
+        return [];
+    }
+
+    $limit = max(1, min($limit, 20));
+    $cacheKey = shop_cache_key('product_reviews', [
+        'product_id' => $productId,
+        'limit' => $limit,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (shop_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
+
+    $hasUsers = shop_table_exists($pdo, 'users');
+    $reviewerNameSelect = "'Anonymous'";
+    if ($hasUsers) {
+        $nameColumns = [];
+        foreach (['full_name', 'name', 'username', 'email'] as $candidateColumn) {
+            if (shop_table_has_column($pdo, 'users', $candidateColumn)) {
+                $nameColumns[] = "NULLIF(TRIM(u.{$candidateColumn}), '')";
+            }
+        }
+        if (count($nameColumns) > 0) {
+            $reviewerNameSelect = 'COALESCE(' . implode(', ', $nameColumns) . ", 'Anonymous')";
+        }
+    }
+
+    $userJoin = $hasUsers
+        ? 'LEFT JOIN users u ON u.id = r.user_id'
+        : 'LEFT JOIN (SELECT NULL AS id, NULL AS user_id) u ON 1 = 0';
+
+    $statusFilter = '';
+    $statusValue = '';
+    if (shop_table_has_column($pdo, 'reviews', 'status')) {
+        $statusFilter = ' AND r.status = :status';
+        $statusValue = 'approved';
+    }
+
+    $sql = "
+        SELECT
+            r.id,
+            COALESCE(r.rating, 0) AS rating,
+            COALESCE(r.comment, '') AS comment,
+            r.created_at,
+            {$reviewerNameSelect} AS reviewer_name
+        FROM reviews r
+        {$userJoin}
+        WHERE r.product_id = :product_id{$statusFilter}
+        ORDER BY r.created_at DESC, r.id DESC
+        LIMIT :limit
+    ";
+
+    $statement = $pdo->prepare($sql);
+    $statement->bindValue(':product_id', $productId, PDO::PARAM_INT);
+    if ($statusFilter !== '') {
+        $statement->bindValue(':status', $statusValue);
+    }
+    $statement->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $statement->execute();
+    $rows = $statement->fetchAll();
+    $result = is_array($rows) ? $rows : [];
+    shop_cache_store($cacheKey, $result, 300);
+    return $result;
 }
 
 function shop_ensure_contact_tables(PDO $pdo): void
@@ -758,6 +1186,71 @@ function shop_start_session(): void
         'cookie_samesite' => 'Lax',
         'use_strict_mode' => true,
     ]);
+}
+
+function shop_current_user(): ?array
+{
+    shop_start_session();
+
+    $user = $_SESSION[SHOP_USER_SESSION_KEY] ?? null;
+    if (!is_array($user)) {
+        return null;
+    }
+
+    $id = max(0, (int)($user['id'] ?? 0));
+    $firebaseUid = trim((string)($user['firebase_uid'] ?? ''));
+    $email = trim((string)($user['email'] ?? ''));
+
+    if ($id <= 0 && $firebaseUid === '' && $email === '') {
+        return null;
+    }
+
+    return [
+        'id' => $id,
+        'firebase_uid' => $firebaseUid,
+        'email' => $email,
+        'name' => trim((string)($user['name'] ?? '')),
+        'avatar' => trim((string)($user['avatar'] ?? '')),
+        'role' => trim((string)($user['role'] ?? 'customer')),
+    ];
+}
+
+function shop_user_is_logged_in(): bool
+{
+    return shop_current_user() !== null;
+}
+
+function shop_safe_login_return_path(string $returnPath): string
+{
+    $returnPath = trim(str_replace('\\', '/', $returnPath));
+    if ($returnPath === '') {
+        return '../Users/Home.php';
+    }
+
+    if (
+        preg_match('/^[a-z][a-z0-9+.-]*:/i', $returnPath) === 1
+        || str_starts_with($returnPath, '//')
+        || str_starts_with($returnPath, '/')
+    ) {
+        return '../Users/Home.php';
+    }
+
+    return $returnPath;
+}
+
+function shop_login_url(string $returnPath = '../Users/checkout.php'): string
+{
+    return '../Auth/login.php?redirect=' . rawurlencode(shop_safe_login_return_path($returnPath));
+}
+
+function shop_require_checkout_login(string $returnPath = '../Users/checkout.php'): void
+{
+    if (shop_user_is_logged_in()) {
+        return;
+    }
+
+    header('Location: ' . shop_login_url($returnPath), true, 302);
+    exit;
 }
 
 function shop_cart_line_key(int $productId, int $variantId): string
@@ -1239,6 +1732,36 @@ function shop_null_if_empty(string $value): ?string
 
 function shop_resolve_checkout_user_id(PDO $pdo, array $form): ?int
 {
+    $currentUser = shop_current_user();
+    if (is_array($currentUser)) {
+        $sessionUserId = max(0, (int)($currentUser['id'] ?? 0));
+        if ($sessionUserId > 0) {
+            return $sessionUserId;
+        }
+
+        $firebaseUid = trim((string)($currentUser['firebase_uid'] ?? ''));
+        if ($firebaseUid !== '' && shop_table_exists($pdo, 'users')) {
+            $findByUid = $pdo->prepare('SELECT id FROM users WHERE firebase_uid = :firebase_uid ORDER BY id ASC LIMIT 1');
+            $findByUid->execute([':firebase_uid' => $firebaseUid]);
+            $row = $findByUid->fetch();
+            if (is_array($row) && (int)($row['id'] ?? 0) > 0) {
+                return (int)$row['id'];
+            }
+        }
+
+        $sessionEmail = strtolower(trim((string)($currentUser['email'] ?? '')));
+        if ($sessionEmail !== '' && filter_var($sessionEmail, FILTER_VALIDATE_EMAIL) && shop_table_exists($pdo, 'users')) {
+            $findByEmail = $pdo->prepare('SELECT id FROM users WHERE email = :email ORDER BY id ASC LIMIT 1');
+            $findByEmail->execute([':email' => $sessionEmail]);
+            $row = $findByEmail->fetch();
+            if (is_array($row) && (int)($row['id'] ?? 0) > 0) {
+                return (int)$row['id'];
+            }
+        }
+
+        return null;
+    }
+
     if (!shop_table_exists($pdo, 'users')) {
         return null;
     }
@@ -1282,6 +1805,10 @@ function shop_resolve_checkout_user_id(PDO $pdo, array $form): ?int
 
 function shop_place_order(PDO $pdo, array $formInput): array
 {
+    if (!shop_user_is_logged_in()) {
+        throw new RuntimeException('Please log in before checkout.');
+    }
+
     shop_ensure_checkout_tables($pdo);
     $form = shop_checkout_validate($formInput);
     $cart = shop_cart_details($pdo);

@@ -255,7 +255,7 @@ try {
                         <span class="font-semibold">Estimated Total</span>
                         <span class="text-xl font-bold text-on-surface"><?= shop_h(shop_money((float)$cart['subtotal'])) ?></span>
                     </div>
-                    <a class="mt-lg w-full inline-flex justify-center items-center rounded-full bg-primary text-on-primary py-md font-semibold hover:opacity-90" href="checkout.php">
+                    <a class="mt-lg w-full inline-flex justify-center items-center rounded-full bg-primary text-on-primary py-md font-semibold hover:opacity-90" data-checkout-link href="checkout.php">
                         Checkout
                     </a>
                     <form class="mt-sm" method="post" onsubmit="return confirm('Clear all items from cart?');">

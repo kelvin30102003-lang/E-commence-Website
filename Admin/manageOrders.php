@@ -7,6 +7,7 @@ require_once __DIR__ . '/includes/admin_layout.php';
 
 admin_start_session();
 $admin = admin_require_auth('adminLogin.php');
+admin_page_cache_start($admin, 'orders', ADMIN_PAGE_CACHE_TTL_SECONDS);
 
 $pdo = admin_db();
 admin_ensure_tables($pdo);
@@ -63,96 +64,13 @@ if ($ordersTableExists && $viewOrderId > 0) {
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>Orders Management | LuvShop Admin</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
-    <script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    "colors": {
-                        "inverse-on-surface": "#f2f0f0",
-                        "tertiary-container": "#e9ddab",
-                        "secondary-fixed": "#b2f2bb",
-                        "on-primary-fixed": "#2d141c",
-                        "on-primary-container": "#7a5761",
-                        "on-primary-fixed-variant": "#5e3e47",
-                        "surface-tint": "#78555e",
-                        "on-tertiary-fixed": "#211c00",
-                        "background": "#fbf9f8",
-                        "surface-container-high": "#eae8e7",
-                        "error-container": "#ffdad6",
-                        "on-tertiary": "#ffffff",
-                        "surface-container-lowest": "#ffffff",
-                        "on-secondary": "#ffffff",
-                        "on-secondary-container": "#357044",
-                        "surface-variant": "#e4e2e2",
-                        "primary-container": "#ffd1dc",
-                        "surface": "#fbf9f8",
-                        "on-secondary-fixed-variant": "#145129",
-                        "on-error-container": "#93000a",
-                        "surface-dim": "#dbd9d9",
-                        "secondary": "#2f6a3f",
-                        "error": "#ba1a1a",
-                        "on-tertiary-container": "#696139",
-                        "on-background": "#1b1c1c",
-                        "on-surface": "#1b1c1c",
-                        "on-secondary-fixed": "#00210b",
-                        "tertiary": "#665f36",
-                        "on-error": "#ffffff",
-                        "primary-fixed-dim": "#e7bbc6",
-                        "outline-variant": "#d3c3c5",
-                        "secondary-fixed-dim": "#96d5a0",
-                        "on-surface-variant": "#4f4446",
-                        "inverse-primary": "#e7bbc6",
-                        "outline": "#817476",
-                        "surface-container-highest": "#e4e2e2",
-                        "primary-fixed": "#ffd9e2",
-                        "surface-bright": "#fbf9f8",
-                        "surface-container": "#efeded",
-                        "secondary-container": "#b2f2bb",
-                        "on-primary": "#ffffff",
-                        "primary": "#78555e"
-                    },
-                    "borderRadius": {
-                        "DEFAULT": "1rem",
-                        "lg": "2rem",
-                        "xl": "3rem",
-                        "full": "9999px"
-                    },
-                    "spacing": {
-                        "xl": "48px",
-                        "margin-mobile": "20px",
-                        "lg": "24px",
-                        "sm": "8px",
-                        "margin-desktop": "80px",
-                        "gutter": "16px",
-                        "xs": "4px",
-                        "unit": "4px",
-                        "md": "16px"
-                    },
-                    "fontFamily": {
-                        "headline-lg": ["Quicksand"],
-                        "headline-md": ["Quicksand"],
-                        "body-lg": ["Plus Jakarta Sans"],
-                        "body-md": ["Plus Jakarta Sans"],
-                        "label-md": ["Plus Jakarta Sans"],
-                        "label-sm": ["Plus Jakarta Sans"]
-                    },
-                    "fontSize": {
-                        "headline-lg": ["32px", {"lineHeight": "40px", "fontWeight": "700"}],
-                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
-                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
-                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
-                        "label-sm": ["12px", {"lineHeight": "16px", "fontWeight": "700"}]
-                    }
-                }
-            }
-        };
-    </script>
-    <style>
+    <?php admin_render_critical_css(); ?>
+    <?php $adminCssHref = admin_css_href(); ?>
+<?php if ($adminCssHref !== null): ?>
+    <link href="<?= admin_html($adminCssHref) ?>" rel="stylesheet"/>
+<?php endif; ?>
+    <link href="<?= admin_html(admin_material_symbols_href()) ?>" rel="stylesheet"/>
+<style>
         body {
             background-color: #fbf9f8;
             font-family: 'Plus Jakarta Sans', sans-serif;
@@ -541,87 +459,99 @@ admin_render_sidebar($admin, 'orders');
 </div>
 
 <script>
-    const menu = document.getElementById('actionMenu');
-
-    function toggleMenu(event, button) {
-        event.stopPropagation();
-        const rect = button.getBoundingClientRect();
-        const isOpen = !menu.classList.contains('hidden');
-        const orderId = button.getAttribute('data-menu-order-id') || '';
-        const nextOrderStatus = button.getAttribute('data-menu-next-order-status') || 'processing';
-        const nextShippingStatus = button.getAttribute('data-menu-next-shipping-status') || 'shipped';
-        const nextPaymentStatus = button.getAttribute('data-menu-next-payment-status') || 'paid';
-        const orderQuery = button.getAttribute('data-menu-order-query') || '';
-
-        menu.querySelectorAll('[data-menu-order-id-input]').forEach((input) => { input.value = orderId; });
-        menu.querySelectorAll('[data-menu-order-status-input]').forEach((input) => { input.value = nextOrderStatus; });
-        menu.querySelectorAll('[data-menu-shipping-status-input]').forEach((input) => { input.value = nextShippingStatus; });
-        menu.querySelectorAll('[data-menu-payment-status-input]').forEach((input) => { input.value = nextPaymentStatus; });
-        menu.querySelectorAll('[data-menu-return-query-input]').forEach((input) => { input.value = orderQuery; });
-
-        const viewLink = menu.querySelector('[data-menu-view-link]');
-        if (viewLink) {
-            let href = 'manageOrders.php';
-            if (orderQuery) {
-                href += orderQuery + '&view_id=' + encodeURIComponent(orderId);
-            } else {
-                href += '?view_id=' + encodeURIComponent(orderId);
-            }
-            viewLink.setAttribute('href', href);
-        }
-
-        const orderStatusButton = menu.querySelector('[data-menu-order-status-button]');
-        if (orderStatusButton) {
-            orderStatusButton.innerHTML = '<span class="material-symbols-outlined">edit_calendar</span>Move to ' + formatStatusLabel(nextOrderStatus);
-        }
-        const shippingButton = menu.querySelector('[data-menu-shipping-status-button]');
-        if (shippingButton) {
-            shippingButton.innerHTML = '<span class="material-symbols-outlined">local_shipping</span>Shipping: ' + formatStatusLabel(nextShippingStatus);
-        }
-        const paymentButton = menu.querySelector('[data-menu-payment-status-button]');
-        if (paymentButton) {
-            paymentButton.innerHTML = '<span class="material-symbols-outlined">payments</span>Payment: ' + formatStatusLabel(nextPaymentStatus);
-        }
-
-        if (isOpen) {
-            closeMenu();
+    (() => {
+        const menu = document.getElementById('actionMenu');
+        if (!menu) {
+            window.toggleMenu = () => {};
             return;
         }
 
-        menu.style.top = `${rect.bottom + 8}px`;
-        menu.style.left = `${Math.max(8, rect.right - 224)}px`;
-        menu.classList.remove('hidden');
-        setTimeout(() => {
-            menu.classList.remove('scale-95', 'opacity-0');
-        }, 10);
-    }
+        window.toggleMenu = function toggleMenu(event, button) {
+            event.stopPropagation();
+            const rect = button.getBoundingClientRect();
+            const isOpen = !menu.classList.contains('hidden');
+            const orderId = button.getAttribute('data-menu-order-id') || '';
+            const nextOrderStatus = button.getAttribute('data-menu-next-order-status') || 'processing';
+            const nextShippingStatus = button.getAttribute('data-menu-next-shipping-status') || 'shipped';
+            const nextPaymentStatus = button.getAttribute('data-menu-next-payment-status') || 'paid';
+            const orderQuery = button.getAttribute('data-menu-order-query') || '';
 
-    function closeMenu() {
-        menu.classList.add('scale-95', 'opacity-0');
-        setTimeout(() => {
-            menu.classList.add('hidden');
-        }, 200);
-    }
+            menu.querySelectorAll('[data-menu-order-id-input]').forEach((input) => { input.value = orderId; });
+            menu.querySelectorAll('[data-menu-order-status-input]').forEach((input) => { input.value = nextOrderStatus; });
+            menu.querySelectorAll('[data-menu-shipping-status-input]').forEach((input) => { input.value = nextShippingStatus; });
+            menu.querySelectorAll('[data-menu-payment-status-input]').forEach((input) => { input.value = nextPaymentStatus; });
+            menu.querySelectorAll('[data-menu-return-query-input]').forEach((input) => { input.value = orderQuery; });
 
-    function formatStatusLabel(statusValue) {
-        if (!statusValue) return '';
-        return statusValue.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
-    }
+            const viewLink = menu.querySelector('[data-menu-view-link]');
+            if (viewLink) {
+                let href = 'manageOrders.php';
+                if (orderQuery) {
+                    href += orderQuery + '&view_id=' + encodeURIComponent(orderId);
+                } else {
+                    href += '?view_id=' + encodeURIComponent(orderId);
+                }
+                viewLink.setAttribute('href', href);
+            }
 
-    document.addEventListener('click', (event) => {
-        if (!menu.contains(event.target)) {
-            closeMenu();
+            const orderStatusButton = menu.querySelector('[data-menu-order-status-button]');
+            if (orderStatusButton) {
+                orderStatusButton.innerHTML = '<span class="material-symbols-outlined">edit_calendar</span>Move to ' + formatStatusLabel(nextOrderStatus);
+            }
+            const shippingButton = menu.querySelector('[data-menu-shipping-status-button]');
+            if (shippingButton) {
+                shippingButton.innerHTML = '<span class="material-symbols-outlined">local_shipping</span>Shipping: ' + formatStatusLabel(nextShippingStatus);
+            }
+            const paymentButton = menu.querySelector('[data-menu-payment-status-button]');
+            if (paymentButton) {
+                paymentButton.innerHTML = '<span class="material-symbols-outlined">payments</span>Payment: ' + formatStatusLabel(nextPaymentStatus);
+            }
+
+            if (isOpen) {
+                closeMenu();
+                return;
+            }
+
+            menu.style.top = `${rect.bottom + 8}px`;
+            menu.style.left = `${Math.max(8, rect.right - 224)}px`;
+            menu.classList.remove('hidden');
+            setTimeout(() => {
+                menu.classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        };
+
+        function closeMenu() {
+            menu.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => {
+                menu.classList.add('hidden');
+            }, 200);
         }
-    });
 
-    document.querySelectorAll('button').forEach((button) => {
-        button.addEventListener('mousedown', () => button.classList.add('scale-95'));
-        button.addEventListener('mouseup', () => button.classList.remove('scale-95'));
-        button.addEventListener('mouseleave', () => button.classList.remove('scale-95'));
-    });
+        function formatStatusLabel(statusValue) {
+            if (!statusValue) return '';
+            return statusValue.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+        }
+
+        if (typeof window.__adminOrdersMenuDocumentClickHandler === 'function') {
+            document.removeEventListener('click', window.__adminOrdersMenuDocumentClickHandler);
+        }
+        const handleDocumentClick = (event) => {
+            if (!(event.target instanceof Node) || !menu.contains(event.target)) {
+                closeMenu();
+            }
+        };
+        window.__adminOrdersMenuDocumentClickHandler = handleDocumentClick;
+        document.addEventListener('click', handleDocumentClick);
+
+        document.querySelectorAll('button').forEach((button) => {
+            button.addEventListener('mousedown', () => button.classList.add('scale-95'));
+            button.addEventListener('mouseup', () => button.classList.remove('scale-95'));
+            button.addEventListener('mouseleave', () => button.classList.remove('scale-95'));
+        });
+    })();
 </script>
 </body>
 </html>
+<?php admin_page_cache_finish(); ?>
 
 <?php
 
@@ -749,6 +679,12 @@ function updateOrderField(PDO $pdo, int $orderId, string $field, string $value, 
 
 function fetchOrderStats(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('orders_stats', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return array_merge(defaultOrderStats(), $cached);
+    }
+
     $stats = defaultOrderStats();
 
     $sql = "
@@ -769,11 +705,25 @@ function fetchOrderStats(PDO $pdo): array
     $stats['delivered_orders'] = (int)($row['delivered_orders'] ?? 0);
     $stats['unpaid_orders'] = (int)($row['unpaid_orders'] ?? 0);
 
+    admin_cache_store($cacheKey, $stats, ADMIN_PAGE_CACHE_TTL_SECONDS);
     return $stats;
 }
 
 function fetchOrderList(PDO $pdo, array $filters): array
 {
+    $cacheKey = admin_cache_key('orders_list', [
+        'filters' => $filters,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        $cachedRows = $cached['rows'] ?? null;
+        $cachedTotal = $cached['total'] ?? null;
+        if (is_array($cachedRows)) {
+            return ['rows' => $cachedRows, 'total' => (int)$cachedTotal];
+        }
+    }
+
     $hasUsers = admin_table_exists($pdo, 'users');
 
     $params = [];
@@ -852,7 +802,9 @@ function fetchOrderList(PDO $pdo, array $filters): array
     $orders = is_array($rows) ? $rows : [];
 
     hydrateOrderItemSummary($pdo, $orders);
-    return ['rows' => $orders, 'total' => $total];
+    $result = ['rows' => $orders, 'total' => $total];
+    admin_cache_store($cacheKey, $result, 15);
+    return $result;
 }
 
 function hydrateOrderItemSummary(PDO $pdo, array &$orders): void
@@ -925,6 +877,15 @@ function fetchOrderById(PDO $pdo, int $orderId): ?array
         return null;
     }
 
+    $cacheKey = admin_cache_key('orders_detail', [
+        'order_id' => $orderId,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached)) {
+        return is_array($cached) ? $cached : null;
+    }
+
     $hasUsers = admin_table_exists($pdo, 'users');
     $usersJoin = $hasUsers ? 'LEFT JOIN users u ON u.id = o.user_id' : '';
     $customerNameSql = $hasUsers
@@ -949,13 +910,24 @@ function fetchOrderById(PDO $pdo, int $orderId): ?array
     $stmt = $pdo->prepare($sql);
     $stmt->execute([':id' => $orderId]);
     $row = $stmt->fetch();
-    return is_array($row) ? $row : null;
+    $result = is_array($row) ? $row : null;
+    admin_cache_store($cacheKey, $result, ADMIN_PAGE_CACHE_TTL_SECONDS);
+    return $result;
 }
 
 function fetchOrderItemsByOrderId(PDO $pdo, int $orderId): array
 {
     if ($orderId <= 0 || !admin_table_exists($pdo, 'order_items')) {
         return [];
+    }
+
+    $cacheKey = admin_cache_key('orders_items', [
+        'order_id' => $orderId,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
     }
 
     $stmt = $pdo->prepare(
@@ -966,7 +938,9 @@ function fetchOrderItemsByOrderId(PDO $pdo, int $orderId): array
     );
     $stmt->execute([':order_id' => $orderId]);
     $rows = $stmt->fetchAll();
-    return is_array($rows) ? $rows : [];
+    $result = is_array($rows) ? $rows : [];
+    admin_cache_store($cacheKey, $result, ADMIN_PAGE_CACHE_TTL_SECONDS);
+    return $result;
 }
 
 function setOrderFlash(string $type, string $message): void
@@ -1157,3 +1131,6 @@ function nextPaymentStatus(string $current): string
         default => $current,
     };
 }
+
+
+

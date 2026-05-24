@@ -9,4 +9,5 @@ return [
     'user' => 'root',
     'password' => 'your-password',
     'charset' => 'utf8mb4',
+    'persistent' => true,
 ];

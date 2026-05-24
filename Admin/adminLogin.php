@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/admin_auth.php';
+require_once __DIR__ . '/includes/admin_layout.php';
 
 admin_start_session();
 
@@ -91,17 +92,39 @@ $pageTitle = $hasAdminAccount ? 'Admin Login' : 'Create First Admin';
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title><?= admin_html($pageTitle) ?> | LuvShop</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <?php admin_render_critical_css(); ?>
+    <?php $adminCssHref = admin_css_href(); ?>
+<?php if ($adminCssHref !== null): ?>
+    <link href="<?= admin_html($adminCssHref) ?>" rel="stylesheet"/>
+<?php endif; ?>
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .admin-login-shell {
+            align-items: center;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 24px;
+        }
+        .admin-login-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+            max-width: calc(100vw - 32px);
+            padding: 32px;
+            width: 448px;
+        }
+        .admin-login-card input {
+            box-sizing: border-box;
+            display: block;
+            width: 100%;
+        }
     </style>
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-800">
-    <main class="min-h-screen flex items-center justify-center p-6">
-        <section class="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-sm p-8 space-y-6">
+    <main class="admin-login-shell min-h-screen flex items-center justify-center p-6">
+        <section class="admin-login-card w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-sm p-8 space-y-6">
             <div class="space-y-1 text-center">
                 <h1 class="text-2xl font-semibold text-slate-900"><?= admin_html($pageTitle) ?></h1>
                 <?php if ($hasAdminAccount): ?>
@@ -168,3 +191,4 @@ $pageTitle = $hasAdminAccount ? 'Admin Login' : 'Create First Admin';
     </main>
 </body>
 </html>
+

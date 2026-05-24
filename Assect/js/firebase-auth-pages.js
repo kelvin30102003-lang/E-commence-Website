@@ -10,9 +10,32 @@
     }
 
     var auth = firebase.auth();
-    var redirectUrl = '../Users/Home.php';
+    var defaultRedirectUrl = '../Users/Home.php';
     var syncEndpoint = 'sync_user.php';
     var isAuthSyncInProgress = false;
+
+    function resolveRedirectUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var redirect = params.get('redirect') || '';
+        if (!redirect) {
+            return defaultRedirectUrl;
+        }
+
+        try {
+            var target = new URL(redirect, window.location.href);
+            if (target.origin !== window.location.origin) {
+                return defaultRedirectUrl;
+            }
+            if (/\/Auth\/(?:login|register)\.php$/i.test(target.pathname)) {
+                return defaultRedirectUrl;
+            }
+            return target.href;
+        } catch (_error) {
+            return defaultRedirectUrl;
+        }
+    }
+
+    var redirectUrl = resolveRedirectUrl();
 
     function setFeedback(element, message, isError) {
         if (!element) {
@@ -52,6 +75,10 @@
     }
 
     function syncUserToMySql(user) {
+        if (window.LuvShopAuthSession && typeof window.LuvShopAuthSession.syncUser === 'function') {
+            return window.LuvShopAuthSession.syncUser(user, { forceRefreshToken: true });
+        }
+
         return user.getIdToken(true).then(function (idToken) {
             var providerId = '';
             if (Array.isArray(user.providerData) && user.providerData.length > 0) {
@@ -60,6 +87,7 @@
 
             return fetch(syncEndpoint, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     idToken: idToken,

@@ -9,11 +9,24 @@ shop_start_session();
 
 $slug = trim((string)($_GET['slug'] ?? ''));
 $productId = max(0, (int)($_GET['id'] ?? 0));
+$ajaxSection = strtolower(trim((string)($_GET['section'] ?? '')));
+$isAjaxRequest = shop_is_ajax_request();
 
 $dbError = null;
 $product = null;
-$relatedProducts = [];
-$cartPopup = shop_cart_pull_flash();
+$cartPopup = null;
+$pdo = null;
+$productCacheHit = false;
+$productCacheKey = shop_cache_key('product_detail', [
+    'slug' => $slug,
+    'id' => $productId,
+    'v' => 1,
+]);
+$cachedProductPayload = null;
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && shop_cache_fetch($productCacheKey, $cachedProductPayload)) {
+    $productCacheHit = true;
+    $product = is_array($cachedProductPayload) ? $cachedProductPayload : null;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $postAction = trim((string)($_POST['action'] ?? ''));
@@ -49,16 +62,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 try {
-    $pdo = shop_db();
-    $product = shop_fetch_product_detail($pdo, $slug, $productId);
-
-    if (is_array($product)) {
-        $relatedProducts = shop_fetch_related_products(
-            $pdo,
-            (int)($product['id'] ?? 0),
-            (int)($product['category_id'] ?? 0),
-            4
-        );
+    if (!$productCacheHit) {
+        $pdo = shop_db();
+        $product = shop_fetch_product_detail($pdo, $slug, $productId);
     }
 } catch (Throwable $exception) {
     $dbError = $exception->getMessage();
@@ -67,6 +73,65 @@ try {
 if ($product === null && $dbError === null) {
     http_response_code(404);
 }
+
+if ($isAjaxRequest && $_SERVER['REQUEST_METHOD'] === 'GET' && $ajaxSection !== '') {
+    if ($dbError !== null) {
+        echo '<section class="rounded-xl border border-red-200 bg-error-container px-md py-sm text-sm text-on-error-container">DB connection error: ' . shop_h($dbError) . '</section>';
+        exit;
+    }
+
+    if (!is_array($product)) {
+        http_response_code(404);
+        echo '<section class="rounded-xl bg-surface-container-lowest p-lg text-on-surface-variant">Product not found.</section>';
+        exit;
+    }
+
+    if ($ajaxSection === 'related') {
+        $relatedProducts = [];
+        $relatedCacheKey = shop_cache_key('related_products', [
+            'product_id' => (int)($product['id'] ?? 0),
+            'category_id' => (int)($product['category_id'] ?? 0),
+            'limit' => 4,
+            'v' => 1,
+        ]);
+        if (!(shop_cache_fetch($relatedCacheKey, $relatedProducts) && is_array($relatedProducts))) {
+            if (!$pdo instanceof PDO) {
+                $pdo = shop_db();
+            }
+            $relatedProducts = shop_fetch_related_products(
+                $pdo,
+                (int)($product['id'] ?? 0),
+                (int)($product['category_id'] ?? 0),
+                4
+            );
+        }
+        echo shop_render_related_products_markup($relatedProducts);
+        exit;
+    }
+
+    if ($ajaxSection === 'reviews') {
+        $reviews = [];
+        $reviewsCacheKey = shop_cache_key('product_reviews', [
+            'product_id' => (int)($product['id'] ?? 0),
+            'limit' => 6,
+            'v' => 1,
+        ]);
+        if (!(shop_cache_fetch($reviewsCacheKey, $reviews) && is_array($reviews))) {
+            if (!$pdo instanceof PDO) {
+                $pdo = shop_db();
+            }
+            $reviews = shop_fetch_product_reviews($pdo, (int)($product['id'] ?? 0), 6);
+        }
+        echo shop_render_reviews_markup($reviews);
+        exit;
+    }
+
+    http_response_code(400);
+    echo '<section class="rounded-xl bg-error-container px-md py-sm text-sm text-on-error-container">Invalid AJAX section.</section>';
+    exit;
+}
+
+$cartPopup = shop_cart_pull_flash();
 
 $images = is_array($product['images'] ?? null) ? $product['images'] : [];
 $images = array_values(array_filter(array_map(
@@ -104,6 +169,17 @@ if (count($variants) > 0) {
 
 $defaultVariantId = count($variants) > 0 ? max(0, (int)($variants[0]['id'] ?? 0)) : 0;
 
+$detailQuery = [];
+if ($slug !== '') {
+    $detailQuery['slug'] = $slug;
+} elseif ($productId > 0) {
+    $detailQuery['id'] = $productId;
+}
+$ajaxQueryBase = $detailQuery;
+$ajaxQueryBase['ajax'] = '1';
+$relatedAjaxUrl = 'productDetail.php?' . http_build_query(array_merge($ajaxQueryBase, ['section' => 'related']));
+$reviewsAjaxUrl = 'productDetail.php?' . http_build_query(array_merge($ajaxQueryBase, ['section' => 'reviews']));
+
 ?>
 <!DOCTYPE html>
 <html class="light" lang="en">
@@ -111,9 +187,11 @@ $defaultVariantId = count($variants) > 0 ? max(0, (int)($variants[0]['id'] ?? 0)
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title><?= shop_h($productName) ?> | LuvShop</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com" rel="preconnect"/>
+    <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <style>
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -421,37 +499,36 @@ $defaultVariantId = count($variants) > 0 ? max(0, (int)($variants[0]['id'] ?? 0)
             </div>
         </section>
 
-        <?php if (count($relatedProducts) > 0): ?>
-            <section>
-                <div class="flex items-center justify-between mb-md">
-                    <h2 class="text-headline-md font-headline-md text-primary">You Might Also Like</h2>
-                    <a class="text-primary font-label-md hover:opacity-80" href="shop.php">View All</a>
+        <section class="mb-lg rounded-2xl bg-surface-container-lowest p-lg soft-shadow">
+            <div class="flex items-center justify-between mb-md">
+                <h2 class="text-headline-md font-headline-md text-primary">Customer Reviews</h2>
+            </div>
+            <div data-lazy-section data-lazy-url="<?= shop_h($reviewsAjaxUrl) ?>" id="product-reviews-lazy">
+                <div class="animate-pulse space-y-sm">
+                    <div class="h-4 w-40 rounded bg-surface-container-high"></div>
+                    <div class="h-4 w-full rounded bg-surface-container-high"></div>
+                    <div class="h-4 w-10/12 rounded bg-surface-container-high"></div>
                 </div>
+            </div>
+        </section>
+
+        <section class="rounded-2xl bg-surface-container-lowest p-lg soft-shadow">
+            <div class="flex items-center justify-between mb-md">
+                <h2 class="text-headline-md font-headline-md text-primary">You Might Also Like</h2>
+                <a class="text-primary font-label-md hover:opacity-80" href="shop.php">View All</a>
+            </div>
+            <div data-lazy-section data-lazy-url="<?= shop_h($relatedAjaxUrl) ?>" id="related-products-lazy">
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md">
-                    <?php foreach ($relatedProducts as $index => $related): ?>
-                        <?php
-                            $relatedName = trim((string)($related['name'] ?? 'Product'));
-                            $relatedImage = trim((string)($related['image'] ?? ''));
-                            $relatedPrice = (float)($related['price'] ?? 0);
-                            $relatedLink = shop_product_detail_url($related);
-                        ?>
-                        <a class="group bg-surface-container-lowest rounded-xl p-md soft-shadow hover:-translate-y-1 transition-all" href="<?= shop_h($relatedLink) ?>">
-                            <div class="aspect-square rounded-xl overflow-hidden mb-sm bg-surface-container-low">
-                                <?php if ($relatedImage !== ''): ?>
-                                    <img alt="<?= shop_h($relatedName) ?>" class="w-full h-full object-cover group-hover:scale-105 transition-transform" decoding="async" loading="lazy" src="<?= shop_h($relatedImage) ?>"/>
-                                <?php else: ?>
-                                    <div class="w-full h-full bg-gradient-to-br <?= shop_h(shop_placeholder_gradient($index)) ?> flex items-center justify-center">
-                                        <span class="text-primary font-semibold"><?= shop_h(strtoupper(substr($relatedName, 0, 1))) ?></span>
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                            <h3 class="font-semibold text-primary mb-xs"><?= shop_h($relatedName) ?></h3>
-                            <p class="font-bold"><?= shop_h(shop_money($relatedPrice)) ?></p>
-                        </a>
-                    <?php endforeach; ?>
+                    <?php for ($placeholderIndex = 0; $placeholderIndex < 4; $placeholderIndex++): ?>
+                        <div class="rounded-xl p-md bg-surface-container-low animate-pulse">
+                            <div class="aspect-square rounded-xl bg-surface-container-high mb-sm"></div>
+                            <div class="h-4 rounded bg-surface-container-high mb-xs"></div>
+                            <div class="h-4 w-20 rounded bg-surface-container-high"></div>
+                        </div>
+                    <?php endfor; ?>
                 </div>
-            </section>
-        <?php endif; ?>
+            </div>
+        </section>
     <?php endif; ?>
 </main>
 
@@ -580,6 +657,135 @@ $defaultVariantId = count($variants) > 0 ? max(0, (int)($variants[0]['id'] ?? 0)
         qtyInput.addEventListener('blur', normalizeInput);
         normalizeInput();
     })();
+
+    (function () {
+        if (!window.fetch) {
+            return;
+        }
+
+        const sections = Array.from(document.querySelectorAll('[data-lazy-section][data-lazy-url]'));
+        if (sections.length === 0) {
+            return;
+        }
+
+        const loadSection = async (container) => {
+            const url = container.getAttribute('data-lazy-url');
+            if (!url) {
+                return;
+            }
+
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+                if (!response.ok) {
+                    throw new Error('Lazy section request failed');
+                }
+
+                container.innerHTML = await response.text();
+            } catch (error) {
+                container.innerHTML = '<section class="rounded-xl bg-surface-container-low px-md py-sm text-on-surface-variant text-sm">Unable to load this section right now.</section>';
+            }
+        };
+
+        sections.forEach((container, index) => {
+            const run = () => {
+                void loadSection(container);
+            };
+
+            if (typeof window.requestIdleCallback === 'function') {
+                window.requestIdleCallback(run, { timeout: 1400 + (index * 500) });
+                return;
+            }
+
+            window.setTimeout(run, 260 + (index * 240));
+        });
+    })();
 </script>
 </body>
 </html>
+
+<?php
+
+function shop_render_related_products_markup(array $relatedProducts): string
+{
+    if (count($relatedProducts) === 0) {
+        return '<section class="rounded-xl bg-surface-container-low px-md py-sm text-on-surface-variant text-sm">No related products available yet.</section>';
+    }
+
+    ob_start();
+    ?>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md">
+        <?php foreach ($relatedProducts as $index => $related): ?>
+            <?php
+                $relatedName = trim((string)($related['name'] ?? 'Product'));
+                $relatedImage = trim((string)($related['image'] ?? ''));
+                $relatedPrice = (float)($related['price'] ?? 0);
+                $relatedLink = shop_product_detail_url($related);
+            ?>
+            <a class="group bg-surface-container-lowest rounded-xl p-md soft-shadow hover:-translate-y-1 transition-all" href="<?= shop_h($relatedLink) ?>">
+                <div class="aspect-square rounded-xl overflow-hidden mb-sm bg-surface-container-low">
+                    <?php if ($relatedImage !== ''): ?>
+                        <img alt="<?= shop_h($relatedName) ?>" class="w-full h-full object-cover group-hover:scale-105 transition-transform" decoding="async" loading="lazy" src="<?= shop_h($relatedImage) ?>"/>
+                    <?php else: ?>
+                        <div class="w-full h-full bg-gradient-to-br <?= shop_h(shop_placeholder_gradient($index)) ?> flex items-center justify-center">
+                            <span class="text-primary font-semibold"><?= shop_h(strtoupper(substr($relatedName, 0, 1))) ?></span>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <h3 class="font-semibold text-primary mb-xs"><?= shop_h($relatedName) ?></h3>
+                <p class="font-bold"><?= shop_h(shop_money($relatedPrice)) ?></p>
+            </a>
+        <?php endforeach; ?>
+    </div>
+    <?php
+    return (string)ob_get_clean();
+}
+
+function shop_render_reviews_markup(array $reviews): string
+{
+    if (count($reviews) === 0) {
+        return '<section class="rounded-xl bg-surface-container-low px-md py-sm text-on-surface-variant text-sm">No reviews yet. Be the first to review this product.</section>';
+    }
+
+    ob_start();
+    ?>
+    <div class="space-y-md">
+        <?php foreach ($reviews as $review): ?>
+            <?php
+                $reviewer = trim((string)($review['reviewer_name'] ?? 'Anonymous'));
+                $comment = trim((string)($review['comment'] ?? ''));
+                $rating = max(0, min(5, (int)($review['rating'] ?? 0)));
+                $createdAt = trim((string)($review['created_at'] ?? ''));
+                $stars = str_repeat('★', $rating) . str_repeat('☆', 5 - $rating);
+                $dateLabel = '';
+                if ($createdAt !== '') {
+                    $timestamp = strtotime($createdAt);
+                    if ($timestamp !== false) {
+                        $dateLabel = date('M j, Y', $timestamp);
+                    }
+                }
+            ?>
+            <article class="rounded-xl border border-outline-variant/30 bg-surface p-md">
+                <div class="flex flex-wrap items-center justify-between gap-sm mb-xs">
+                    <p class="font-semibold text-on-surface"><?= shop_h($reviewer) ?></p>
+                    <div class="text-sm text-primary tracking-wide"><?= shop_h($stars) ?></div>
+                </div>
+                <?php if ($comment !== ''): ?>
+                    <p class="text-on-surface-variant text-sm leading-relaxed"><?= nl2br(shop_h($comment)) ?></p>
+                <?php else: ?>
+                    <p class="text-on-surface-variant text-sm">No comment provided.</p>
+                <?php endif; ?>
+                <?php if ($dateLabel !== ''): ?>
+                    <p class="text-xs text-on-surface-variant mt-sm"><?= shop_h($dateLabel) ?></p>
+                <?php endif; ?>
+            </article>
+        <?php endforeach; ?>
+    </div>
+    <?php
+    return (string)ob_get_clean();
+}

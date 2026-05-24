@@ -7,6 +7,7 @@ require_once __DIR__ . '/includes/admin_layout.php';
 
 admin_start_session();
 $admin = admin_require_auth('adminLogin.php');
+admin_page_cache_start($admin, 'payments', ADMIN_PAGE_CACHE_TTL_SECONDS);
 
 $pdo = admin_db();
 admin_ensure_tables($pdo);
@@ -85,9 +86,12 @@ $exportQuery = '?' . http_build_query([
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>Payment Management | LuvShop Admin</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <?php admin_render_critical_css(); ?>
+    <?php $adminCssHref = admin_css_href(); ?>
+<?php if ($adminCssHref !== null): ?>
+    <link href="<?= admin_html($adminCssHref) ?>" rel="stylesheet"/>
+<?php endif; ?>
+    <link href="<?= admin_html(admin_material_symbols_href()) ?>" rel="stylesheet"/>
     <style>
         body {
             background-color: #fbf9f8;
@@ -442,6 +446,7 @@ admin_render_sidebar($admin, 'payments');
 </main>
 </body>
 </html>
+<?php admin_page_cache_finish(); ?>
 
 <?php
 
@@ -556,6 +561,15 @@ function fetchPaymentStats(PDO $pdo, array $orderColumns): array
     $stats = defaultPaymentStats();
     $statusExpr = resolvePaymentStatusExpression($orderColumns, 'o');
     $amountExpr = resolveAmountExpression($orderColumns, 'o');
+    $cacheKey = admin_cache_key('payments_stats', [
+        'status_expr' => $statusExpr,
+        'amount_expr' => $amountExpr,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return array_merge($stats, $cached);
+    }
 
     $sql = "
         SELECT
@@ -583,6 +597,7 @@ function fetchPaymentStats(PDO $pdo, array $orderColumns): array
         $stats['refund_rate'] = ($stats['refunded_count'] / $stats['total_transactions']) * 100;
     }
 
+    admin_cache_store($cacheKey, $stats, ADMIN_PAGE_CACHE_TTL_SECONDS);
     return $stats;
 }
 
@@ -593,6 +608,22 @@ function fetchPaymentList(
     bool $usersTableExists,
     array $usersColumns
 ): array {
+    $cacheKey = admin_cache_key('payments_list', [
+        'filters' => $filters,
+        'order_columns' => array_keys($orderColumns),
+        'users_table_exists' => $usersTableExists,
+        'users_columns' => array_keys($usersColumns),
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        $cachedRows = $cached['rows'] ?? null;
+        $cachedTotal = $cached['total'] ?? null;
+        if (is_array($cachedRows)) {
+            return ['rows' => $cachedRows, 'total' => (int)$cachedTotal];
+        }
+    }
+
     $params = [];
     $where = ['1 = 1'];
 
@@ -683,7 +714,9 @@ function fetchPaymentList(
     $stmt->execute();
 
     $rows = $stmt->fetchAll();
-    return ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    $result = ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    admin_cache_store($cacheKey, $result, 15);
+    return $result;
 }
 
 function fetchPaymentMethodOptions(PDO $pdo, array $orderColumns): array
@@ -691,6 +724,15 @@ function fetchPaymentMethodOptions(PDO $pdo, array $orderColumns): array
     $methodColumn = resolvePaymentMethodColumn($orderColumns);
     if ($methodColumn === null) {
         return [];
+    }
+
+    $cacheKey = admin_cache_key('payments_methods', [
+        'method_column' => $methodColumn,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
     }
 
     $rows = $pdo->query("SELECT DISTINCT {$methodColumn} AS method FROM orders WHERE {$methodColumn} IS NOT NULL AND {$methodColumn} <> '' ORDER BY {$methodColumn}")->fetchAll();
@@ -706,6 +748,7 @@ function fetchPaymentMethodOptions(PDO $pdo, array $orderColumns): array
         }
     }
 
+    admin_cache_store($cacheKey, $methods, 120);
     return $methods;
 }
 
@@ -714,6 +757,19 @@ function fetchWeeklyPaymentVolume(PDO $pdo, array $orderColumns): array
     $result = defaultWeeklyPaymentVolume();
     $statusExpr = resolvePaymentStatusExpression($orderColumns, 'o');
     $dateExpr = resolveOrderDateExpression($orderColumns, 'o');
+    $cacheKey = admin_cache_key('payments_weekly_volume', [
+        'status_expr' => $statusExpr,
+        'date_expr' => $dateExpr,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        $cachedRows = $cached['rows'] ?? null;
+        $cachedMax = $cached['max'] ?? null;
+        if (is_array($cachedRows)) {
+            return ['rows' => $cachedRows, 'max' => max(1, (int)$cachedMax)];
+        }
+    }
 
     $rows = $pdo->query("
         SELECT
@@ -750,11 +806,22 @@ function fetchWeeklyPaymentVolume(PDO $pdo, array $orderColumns): array
         $max = max($max, $successful, $failed);
     }
 
-    return ['rows' => $out, 'max' => $max];
+    $weeklyVolume = ['rows' => $out, 'max' => $max];
+    admin_cache_store($cacheKey, $weeklyVolume, 30);
+    return $weeklyVolume;
 }
 
 function fetchPaymentAlerts(PDO $pdo, array $orderColumns): array
 {
+    $cacheKey = admin_cache_key('payments_alerts', [
+        'order_columns' => array_keys($orderColumns),
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
+
     $alerts = [];
     $statusExpr = resolvePaymentStatusExpression($orderColumns, 'o');
     $amountExpr = resolveAmountExpression($orderColumns, 'o');
@@ -809,6 +876,7 @@ function fetchPaymentAlerts(PDO $pdo, array $orderColumns): array
         ];
     }
 
+    admin_cache_store($cacheKey, $alerts, 15);
     return $alerts;
 }
 
@@ -877,6 +945,15 @@ function resolveOrderNumberExpression(array $orderColumns, string $alias): strin
 
 function fetchTableColumns(PDO $pdo, string $table): array
 {
+    $cacheKey = admin_cache_key('payments_table_columns', [
+        'table' => strtolower(trim($table)),
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return $cached;
+    }
+
     $stmt = $pdo->prepare(
         'SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table_name'
     );
@@ -890,6 +967,8 @@ function fetchTableColumns(PDO $pdo, string $table): array
     foreach ($rows as $name) {
         $columns[strtolower((string)$name)] = true;
     }
+
+    admin_cache_store($cacheKey, $columns, 3600);
     return $columns;
 }
 
@@ -1062,4 +1141,7 @@ function isValidDateValue(string $value): bool
     $dt = DateTimeImmutable::createFromFormat('Y-m-d', $value);
     return $dt !== false && $dt->format('Y-m-d') === $value;
 }
+
+
+
 

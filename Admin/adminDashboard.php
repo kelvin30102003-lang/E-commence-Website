@@ -7,6 +7,7 @@ require_once __DIR__ . '/includes/admin_layout.php';
 
 admin_start_session();
 $admin = admin_require_auth('adminLogin.php');
+admin_page_cache_start($admin, 'dashboard', ADMIN_PAGE_CACHE_TTL_SECONDS);
 
 $metrics = [
     'total_sales' => 0.0,
@@ -31,12 +32,13 @@ $revenueTrend = [
     'has_data' => false,
 ];
 $dbError = null;
+$searchQuery = trim((string)($_GET['q'] ?? ''));
 
 try {
     $pdo = admin_db();
     admin_ensure_tables($pdo);
     $metrics = admin_fetch_dashboard_metrics($pdo);
-    $recentOrders = admin_fetch_recent_orders($pdo, 8);
+    $recentOrders = admin_fetch_recent_orders($pdo, 8, $searchQuery);
     $orderStatus = admin_fetch_order_status_summary($pdo);
     $revenueTrend = admin_fetch_revenue_trend($pdo, 4);
 } catch (Throwable $exception) {
@@ -78,76 +80,13 @@ $revenueAreaPath = $revenueLinePath . ' L 800,200 L 0,200 Z';
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>LuvShop Admin Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&amp;family=Quicksand:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet" />
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet" />
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <script defer src="../Assect/js/site-ajax.js"></script>
-    <script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    "colors": {
-                        "surface-container": "#efeded",
-                        "surface": "#fbf9f8",
-                        "surface-container-high": "#eae8e7",
-                        "outline-variant": "#d3c3c5",
-                        "error-container": "#ffdad6",
-                        "error": "#ba1a1a",
-                        "primary-container": "#ffd1dc",
-                        "background": "#fbf9f8",
-                        "surface-container-low": "#f5f3f3",
-                        "surface-container-lowest": "#ffffff",
-                        "secondary-container": "#b2f2bb",
-                        "on-surface": "#1b1c1c",
-                        "tertiary-container": "#e9ddab",
-                        "outline": "#817476",
-                        "secondary": "#2f6a3f",
-                        "primary": "#78555e",
-                        "on-surface-variant": "#4f4446",
-                        "on-secondary": "#ffffff",
-                        "on-tertiary": "#ffffff",
-                        "on-primary-container": "#7a5761",
-                        "surface-container-highest": "#e4e2e2"
-                    },
-                    "borderRadius": {
-                        "DEFAULT": "1rem",
-                        "lg": "2rem",
-                        "xl": "3rem",
-                        "full": "9999px"
-                    },
-                    "spacing": {
-                        "xs": "4px",
-                        "sm": "8px",
-                        "md": "16px",
-                        "gutter": "16px",
-                        "xl": "48px",
-                        "unit": "4px",
-                        "lg": "24px"
-                    },
-                    "fontFamily": {
-                        "label-md": ["Plus Jakarta Sans"],
-                        "display-lg": ["Quicksand"],
-                        "body-md": ["Plus Jakarta Sans"],
-                        "headline-md": ["Quicksand"],
-                        "label-sm": ["Plus Jakarta Sans"],
-                        "headline-lg": ["Quicksand"],
-                        "body-lg": ["Plus Jakarta Sans"]
-                    },
-                    "fontSize": {
-                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
-                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
-                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
-                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
-                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "700" }],
-                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "700" }],
-                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }]
-                    }
-                },
-            },
-        }
-    </script>
-    <style>
+    <?php admin_render_critical_css(); ?>
+    <link href="<?= admin_html(admin_material_symbols_href()) ?>" rel="stylesheet"/>
+    <?php $adminCssHref = admin_css_href(); ?>
+<?php if ($adminCssHref !== null): ?>
+    <link href="<?= admin_html($adminCssHref) ?>" rel="stylesheet"/>
+<?php endif; ?>
+<style>
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
             background-color: #fbf9f8;
@@ -182,7 +121,7 @@ $revenueAreaPath = $revenueLinePath . ' L 800,200 L 0,200 Z';
             'search_action' => 'adminDashboard.php',
             'search_method' => 'get',
             'search_name' => 'q',
-            'search_value' => trim((string)($_GET['q'] ?? '')),
+            'search_value' => $searchQuery,
             'search_placeholder' => 'Search orders, customers...',
         ]);
         ?>
@@ -315,7 +254,7 @@ $revenueAreaPath = $revenueLinePath . ' L 800,200 L 0,200 Z';
                             </thead>
                             <tbody class="text-label-md font-label-md text-on-surface divide-y divide-surface-variant/50">
                                 <?php if (count($recentOrders) === 0): ?>
-                                    <tr><td class="py-4" colspan="5">No orders found.</td></tr>
+                                    <tr><td class="py-4" colspan="5"><?= $searchQuery !== '' ? 'No matching orders found.' : 'No orders found.' ?></td></tr>
                                 <?php else: ?>
                                     <?php foreach ($recentOrders as $order): ?>
                                         <?php $status = (string)($order['order_status'] ?? 'unknown'); ?>
@@ -361,11 +300,16 @@ $revenueAreaPath = $revenueLinePath . ' L 800,200 L 0,200 Z';
     </main>
 
     <script>
-        document.querySelectorAll('.soft-shadow').forEach(card => {
-            card.addEventListener('mouseenter', () => {
-                card.style.transition = 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+        (() => {
+            document.querySelectorAll('.soft-shadow').forEach((card) => {
+                card.addEventListener('mouseenter', () => {
+                    card.style.transition = 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                });
             });
-        });
+        })();
     </script>
 </body>
 </html>
+<?php admin_page_cache_finish(); ?>
+
+

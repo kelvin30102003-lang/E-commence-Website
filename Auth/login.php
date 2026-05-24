@@ -2,6 +2,8 @@
 $activePage = '';
 $navPrefix = '../Users/';
 $authLoginHref = 'login.php';
+$redirectParam = trim((string)($_GET['redirect'] ?? ''));
+$authRedirectQuery = $redirectParam !== '' ? '?redirect=' . rawurlencode($redirectParam) : '';
 ?>
 
 <!DOCTYPE html>
@@ -224,7 +226,7 @@ $authLoginHref = 'login.php';
                     <!-- Register Link -->
                     <p class="text-center text-body-md font-body-md text-on-surface-variant mt-lg">
                         Don't have an account?
-                        <a class="text-primary font-bold hover:underline decoration-2 underline-offset-4" data-ajax="true" href="register.php">Register</a>
+                        <a class="text-primary font-bold hover:underline decoration-2 underline-offset-4" data-ajax="true" href="register.php<?= htmlspecialchars($authRedirectQuery, ENT_QUOTES, 'UTF-8') ?>">Register</a>
                     </p>
                 </form>
             </div>

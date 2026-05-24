@@ -6,12 +6,22 @@ $activePage = 'shop';
 
 require_once __DIR__ . '/includes/shop_backend.php';
 shop_start_session();
+shop_require_checkout_login();
 
 $dbError = null;
 $checkoutError = null;
 $successOrder = null;
 
+$currentUser = shop_current_user();
 $form = shop_checkout_default_form();
+if (is_array($currentUser)) {
+    if ((string)($currentUser['name'] ?? '') !== '') {
+        $form['full_name'] = (string)$currentUser['name'];
+    }
+    if ((string)($currentUser['email'] ?? '') !== '') {
+        $form['email'] = (string)$currentUser['email'];
+    }
+}
 $paymentMethods = shop_payment_methods();
 $shippingMethods = shop_shipping_methods();
 

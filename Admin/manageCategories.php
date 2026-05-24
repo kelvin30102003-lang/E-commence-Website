@@ -7,6 +7,7 @@ require_once __DIR__ . '/includes/admin_layout.php';
 
 admin_start_session();
 $admin = admin_require_auth('adminLogin.php');
+admin_page_cache_start($admin, 'categories', ADMIN_PAGE_CACHE_TTL_SECONDS);
 
 $pdo = admin_db();
 admin_ensure_tables($pdo);
@@ -63,9 +64,12 @@ $showForm = ($mode === 'create') || ($mode === 'edit' && $editingCategory !== nu
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>Manage Categories | LuvShop Admin</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <?php admin_render_critical_css(); ?>
+    <?php $adminCssHref = admin_css_href(); ?>
+<?php if ($adminCssHref !== null): ?>
+    <link href="<?= admin_html($adminCssHref) ?>" rel="stylesheet"/>
+<?php endif; ?>
+    <link href="<?= admin_html(admin_material_symbols_href()) ?>" rel="stylesheet"/>
     <style>
         body { font-family: "Plus Jakarta Sans", sans-serif; }
         .material-symbols-outlined {
@@ -81,101 +85,6 @@ $showForm = ($mode === 'create') || ($mode === 'edit' && $editingCategory !== nu
         }
         .bubbly-interaction:active { transform: scale(0.92); }
     </style>
-    <script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    colors: {
-                        "on-surface-variant": "#4f4446",
-                        "on-surface": "#1b1c1c",
-                        "surface": "#fbf9f8",
-                        "primary-fixed-dim": "#e7bbc6",
-                        "tertiary-container": "#e9ddab",
-                        "primary-fixed": "#ffd9e2",
-                        "outline-variant": "#d3c3c5",
-                        "on-tertiary-container": "#696139",
-                        "on-secondary": "#ffffff",
-                        "on-secondary-fixed-variant": "#145129",
-                        "primary-container": "#ffd1dc",
-                        "on-primary-fixed": "#2d141c",
-                        "error": "#ba1a1a",
-                        "surface-bright": "#fbf9f8",
-                        "secondary-fixed": "#b2f2bb",
-                        "surface-container": "#efeded",
-                        "secondary": "#2f6a3f",
-                        "on-tertiary-fixed": "#211c00",
-                        "outline": "#817476",
-                        "on-secondary-container": "#357044",
-                        "surface-container-high": "#eae8e7",
-                        "tertiary-fixed-dim": "#d2c796",
-                        "on-secondary-fixed": "#00210b",
-                        "on-primary-fixed-variant": "#5e3e47",
-                        "surface-container-lowest": "#ffffff",
-                        "on-error": "#ffffff",
-                        "error-container": "#ffdad6",
-                        "inverse-surface": "#303030",
-                        "on-primary": "#ffffff",
-                        "surface-variant": "#e4e2e2",
-                        "on-tertiary": "#ffffff",
-                        "on-background": "#1b1c1c",
-                        "inverse-primary": "#e7bbc6",
-                        "surface-container-low": "#f5f3f3",
-                        "on-tertiary-fixed-variant": "#4e4721",
-                        "on-primary-container": "#7a5761",
-                        "background": "#fbf9f8",
-                        "secondary-fixed-dim": "#96d5a0",
-                        "tertiary": "#665f36",
-                        "on-error-container": "#93000a",
-                        "secondary-container": "#b2f2bb",
-                        "surface-tint": "#78555e",
-                        "primary": "#78555e",
-                        "tertiary-fixed": "#efe3b0",
-                        "surface-container-highest": "#e4e2e2",
-                        "inverse-on-surface": "#f2f0f0",
-                        "surface-dim": "#dbd9d9"
-                    },
-                    borderRadius: {
-                        DEFAULT: "1rem",
-                        lg: "2rem",
-                        xl: "3rem",
-                        full: "9999px"
-                    },
-                    spacing: {
-                        xl: "48px",
-                        gutter: "16px",
-                        xs: "4px",
-                        unit: "4px",
-                        "margin-mobile": "20px",
-                        md: "16px",
-                        lg: "24px",
-                        sm: "8px",
-                        "margin-desktop": "80px"
-                    },
-                    fontFamily: {
-                        "display-lg": ["Quicksand"],
-                        "label-sm": ["Plus Jakarta Sans"],
-                        "body-md": ["Plus Jakarta Sans"],
-                        "body-lg": ["Plus Jakarta Sans"],
-                        "headline-lg-mobile": ["Quicksand"],
-                        "label-md": ["Plus Jakarta Sans"],
-                        "headline-md": ["Quicksand"],
-                        "headline-lg": ["Quicksand"]
-                    },
-                    fontSize: {
-                        "display-lg": ["48px", { lineHeight: "56px", letterSpacing: "-0.02em", fontWeight: "700" }],
-                        "label-sm": ["12px", { lineHeight: "16px", fontWeight: "700" }],
-                        "body-md": ["16px", { lineHeight: "24px", fontWeight: "400" }],
-                        "body-lg": ["18px", { lineHeight: "28px", fontWeight: "400" }],
-                        "headline-lg-mobile": ["24px", { lineHeight: "32px", fontWeight: "700" }],
-                        "label-md": ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "600" }],
-                        "headline-md": ["24px", { lineHeight: "32px", fontWeight: "600" }],
-                        "headline-lg": ["32px", { lineHeight: "40px", fontWeight: "700" }]
-                    }
-                }
-            }
-        };
-    </script>
 </head>
 <body class="bg-surface font-body-md text-on-surface">
 <?php admin_render_sidebar($admin, 'categories'); ?>
@@ -363,7 +272,7 @@ $showForm = ($mode === 'create') || ($mode === 'edit' && $editingCategory !== nu
                                 <div class="flex items-center gap-md <?= $isChild ? 'pl-lg' : '' ?>">
                                     <div class="w-12 h-12 rounded-xl bg-primary-fixed overflow-hidden flex-shrink-0 shadow-sm flex items-center justify-center text-primary font-bold">
                                         <?php if ($imageUrl !== ''): ?>
-                                            <img alt="<?= admin_html($name) ?>" class="w-full h-full object-cover" src="<?= admin_html($imageUrl) ?>"/>
+                                            <img alt="<?= admin_html($name) ?>" class="w-full h-full object-cover" decoding="async" fetchpriority="low" height="48" loading="lazy" src="<?= admin_html($imageUrl) ?>" width="48"/>
                                         <?php else: ?>
                                             <?= admin_html(strtoupper(substr($name, 0, 1))) ?>
                                         <?php endif; ?>
@@ -497,30 +406,43 @@ $showForm = ($mode === 'create') || ($mode === 'edit' && $editingCategory !== nu
 </main>
 
 <script>
-    const rows = document.querySelectorAll('tbody tr');
-    rows.forEach((row) => {
-        const handle = row.querySelector('.drag-handle');
-        if (!handle) return;
-        handle.addEventListener('mousedown', () => {
-            row.classList.add('bg-primary-container/20', 'scale-[1.01]', 'shadow-lg', 'z-10');
+    (() => {
+        const rows = Array.from(document.querySelectorAll('tbody tr'));
+        rows.forEach((row) => {
+            const handle = row.querySelector('.drag-handle');
+            if (!handle) {
+                return;
+            }
+            handle.addEventListener('mousedown', () => {
+                row.classList.add('bg-primary-container/20', 'scale-[1.01]', 'shadow-lg', 'z-10');
+            });
         });
-        window.addEventListener('mouseup', () => {
-            row.classList.remove('bg-primary-container/20', 'scale-[1.01]', 'shadow-lg', 'z-10');
-        });
-    });
 
-    const searchInput = document.querySelector('input[name="q"]');
-    if (searchInput && searchInput.parentElement) {
-        searchInput.addEventListener('focus', () => {
-            searchInput.parentElement.classList.add('scale-105');
-        });
-        searchInput.addEventListener('blur', () => {
-            searchInput.parentElement.classList.remove('scale-105');
-        });
-    }
+        if (typeof window.__adminCategoriesMouseupHandler === 'function') {
+            window.removeEventListener('mouseup', window.__adminCategoriesMouseupHandler);
+        }
+        const mouseupHandler = () => {
+            rows.forEach((row) => {
+                row.classList.remove('bg-primary-container/20', 'scale-[1.01]', 'shadow-lg', 'z-10');
+            });
+        };
+        window.__adminCategoriesMouseupHandler = mouseupHandler;
+        window.addEventListener('mouseup', mouseupHandler);
+
+        const searchInput = document.querySelector('input[name="q"]');
+        if (searchInput && searchInput.parentElement) {
+            searchInput.addEventListener('focus', () => {
+                searchInput.parentElement.classList.add('scale-105');
+            });
+            searchInput.addEventListener('blur', () => {
+                searchInput.parentElement.classList.remove('scale-105');
+            });
+        }
+    })();
 </script>
 </body>
 </html>
+<?php admin_page_cache_finish(); ?>
 
 <?php
 
@@ -728,6 +650,19 @@ function deleteCategoryRecord(PDO $pdo): int
 
 function fetchCategoryStats(PDO $pdo): array
 {
+    $cacheKey = admin_cache_key('categories_stats', ['v' => 1]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        return array_merge([
+            'total_categories' => 0,
+            'active_categories' => 0,
+            'inactive_categories' => 0,
+            'created_this_month' => 0,
+            'top_category_name' => 'â€”',
+            'top_category_products' => 0,
+        ], $cached);
+    }
+
     $stats = [
         'total_categories' => 0,
         'active_categories' => 0,
@@ -773,11 +708,25 @@ function fetchCategoryStats(PDO $pdo): array
         }
     }
 
+    admin_cache_store($cacheKey, $stats, ADMIN_PAGE_CACHE_TTL_SECONDS);
     return $stats;
 }
 
 function fetchCategoryList(PDO $pdo, array $filters): array
 {
+    $cacheKey = admin_cache_key('categories_list', [
+        'filters' => $filters,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached) && is_array($cached)) {
+        $cachedRows = $cached['rows'] ?? null;
+        $cachedTotal = $cached['total'] ?? null;
+        if (is_array($cachedRows)) {
+            return ['rows' => $cachedRows, 'total' => (int)$cachedTotal];
+        }
+    }
+
     if (!admin_table_exists($pdo, 'categories')) {
         return ['rows' => [], 'total' => 0];
     }
@@ -858,15 +807,32 @@ function fetchCategoryList(PDO $pdo, array $filters): array
     $stmt->execute();
 
     $rows = $stmt->fetchAll();
-    return ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    $result = ['rows' => is_array($rows) ? $rows : [], 'total' => $total];
+    admin_cache_store($cacheKey, $result, 15);
+    return $result;
 }
 
 function fetchCategoryById(PDO $pdo, int $id): ?array
 {
+    if ($id <= 0) {
+        return null;
+    }
+
+    $cacheKey = admin_cache_key('categories_detail', [
+        'category_id' => $id,
+        'v' => 1,
+    ]);
+    $cached = null;
+    if (admin_cache_fetch($cacheKey, $cached)) {
+        return is_array($cached) ? $cached : null;
+    }
+
     $stmt = $pdo->prepare('SELECT * FROM categories WHERE id = :id LIMIT 1');
     $stmt->execute([':id' => $id]);
     $row = $stmt->fetch();
-    return is_array($row) ? $row : null;
+    $result = is_array($row) ? $row : null;
+    admin_cache_store($cacheKey, $result, ADMIN_PAGE_CACHE_TTL_SECONDS);
+    return $result;
 }
 
 function fetchParentCategoryOptions(PDO $pdo, ?int $excludeId): array
@@ -1011,3 +977,6 @@ function buildCategoryFilterQuery(array $filters): string
     ]);
     return $query === '' ? '' : '?' . $query;
 }
+
+
+

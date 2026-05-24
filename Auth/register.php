@@ -2,6 +2,8 @@
 $activePage = '';
 $navPrefix = '../Users/';
 $authLoginHref = 'login.php';
+$redirectParam = trim((string)($_GET['redirect'] ?? ''));
+$authRedirectQuery = $redirectParam !== '' ? '?redirect=' . rawurlencode($redirectParam) : '';
 ?>
 
 <!DOCTYPE html>
@@ -225,7 +227,7 @@ $authLoginHref = 'login.php';
             <div class="text-center">
                 <p class="text-body-md text-on-surface-variant">
                     Already have an account?
-                    <a class="text-primary font-bold hover:underline decoration-2 underline-offset-4" data-ajax="true" href="login.php">Log In</a>
+                    <a class="text-primary font-bold hover:underline decoration-2 underline-offset-4" data-ajax="true" href="login.php<?= htmlspecialchars($authRedirectQuery, ENT_QUOTES, 'UTF-8') ?>">Log In</a>
                 </p>
             </div>
         </div>

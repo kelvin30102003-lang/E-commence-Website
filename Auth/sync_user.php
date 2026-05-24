@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
 
+if (!defined('SHOP_USER_SESSION_KEY')) {
+    define('SHOP_USER_SESSION_KEY', 'luvshop_user');
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['ok' => false, 'message' => 'Method not allowed']);
@@ -16,6 +20,12 @@ $payload = json_decode((string)$rawBody, true);
 if (!is_array($payload)) {
     http_response_code(400);
     echo json_encode(['ok' => false, 'message' => 'Invalid JSON body']);
+    exit;
+}
+
+if (trim((string)($payload['action'] ?? '')) === 'logout') {
+    clearShopUserSession();
+    echo json_encode(['ok' => true]);
     exit;
 }
 
@@ -55,10 +65,14 @@ try {
     ensureFirebaseUsersTable($pdo);
     upsertFirebaseUser($pdo, $firebaseUser);
 
+    $sessionUser = fetchSyncedShopUser($pdo, $firebaseUser);
+    storeShopUserSession($sessionUser);
+
     echo json_encode([
         'ok' => true,
         'uid' => $firebaseUser['uid'],
         'email' => $firebaseUser['email'],
+        'user' => $sessionUser,
     ]);
 } catch (Throwable $exception) {
     http_response_code(500);
@@ -66,6 +80,98 @@ try {
         'ok' => false,
         'message' => $exception->getMessage(),
     ]);
+}
+
+function startShopUserSession(): void
+{
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        return;
+    }
+
+    if (headers_sent()) {
+        return;
+    }
+
+    $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || ((int)($_SERVER['SERVER_PORT'] ?? 0) === 443);
+
+    @session_start([
+        'cookie_httponly' => true,
+        'cookie_secure' => $isSecure,
+        'cookie_samesite' => 'Lax',
+        'use_strict_mode' => true,
+    ]);
+}
+
+function clearShopUserSession(): void
+{
+    startShopUserSession();
+
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return;
+    }
+
+    unset($_SESSION[SHOP_USER_SESSION_KEY]);
+}
+
+function storeShopUserSession(array $user): void
+{
+    startShopUserSession();
+
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return;
+    }
+
+    $_SESSION[SHOP_USER_SESSION_KEY] = [
+        'id' => max(0, (int)($user['id'] ?? 0)),
+        'firebase_uid' => trim((string)($user['firebase_uid'] ?? '')),
+        'email' => trim((string)($user['email'] ?? '')),
+        'name' => trim((string)($user['name'] ?? '')),
+        'avatar' => trim((string)($user['avatar'] ?? '')),
+        'role' => trim((string)($user['role'] ?? 'customer')),
+    ];
+}
+
+function fetchSyncedShopUser(PDO $pdo, array $firebaseUser): array
+{
+    $uid = trim((string)($firebaseUser['uid'] ?? ''));
+    $email = strtolower(trim((string)($firebaseUser['email'] ?? '')));
+
+    $row = null;
+    if ($uid !== '') {
+        $statement = $pdo->prepare(
+            'SELECT id, firebase_uid, email, name, avatar, role FROM users WHERE firebase_uid = :firebase_uid ORDER BY id ASC LIMIT 1'
+        );
+        $statement->execute([':firebase_uid' => $uid]);
+        $fetched = $statement->fetch();
+        if (is_array($fetched)) {
+            $row = $fetched;
+        }
+    }
+
+    if (!is_array($row) && $email !== '') {
+        $statement = $pdo->prepare(
+            'SELECT id, firebase_uid, email, name, avatar, role FROM users WHERE email = :email ORDER BY id ASC LIMIT 1'
+        );
+        $statement->execute([':email' => $email]);
+        $fetched = $statement->fetch();
+        if (is_array($fetched)) {
+            $row = $fetched;
+        }
+    }
+
+    if (!is_array($row)) {
+        $row = [];
+    }
+
+    return [
+        'id' => max(0, (int)($row['id'] ?? 0)),
+        'firebase_uid' => trim((string)($row['firebase_uid'] ?? $uid)),
+        'email' => trim((string)($row['email'] ?? $email)),
+        'name' => trim((string)($row['name'] ?? $firebaseUser['display_name'] ?? '')),
+        'avatar' => trim((string)($row['avatar'] ?? $firebaseUser['photo_url'] ?? '')),
+        'role' => trim((string)($row['role'] ?? 'customer')),
+    ];
 }
 
 function lookupFirebaseUserByIdToken(string $apiKey, string $idToken): array
