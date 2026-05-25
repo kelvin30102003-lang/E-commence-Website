@@ -216,10 +216,10 @@ $authRedirectQuery = $redirectParam !== '' ? '?redirect=' . rawurlencode($redire
                 <div class="flex-grow h-px bg-outline-variant/30"></div>
             </div>
             <!-- Social Logins -->
-            <div class="grid grid-cols-2 gap-md mb-xl">
-                <button class="flex items-center justify-center gap-sm bg-surface-container-high py-3 rounded-full hover:bg-surface-container-highest transition-colors border border-outline-variant/20 spring-active" data-google-auth="register" type="button">
-                    <img alt="Google" class="w-5 h-5" data-alt="The official Google multi-colored 'G' logo on a transparent background, rendered in high definition. The icon represents a clean, corporate, and modern tech integration for secure authentication services in a bright light-mode interface." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB2zU_HpOT23fO2yCuBt6lG37HQBLioc2tx98EMR0XfPVoRKgDZ8dtv5aqxjJW0E32G1Wceo4vQBYxJUu-hrOlKVOWnmW1sywPcDKRXF5Z7BB6tJAhetM6ueOz4TocDNLXj-8rxwFMYeq2hDKXgxtW-OkztGGAtIBE1lCzQIV1MT03SQ5WuTfXF4lTj9OwH2GkQPRTaSlrC1d6g_81xb8hnilSOQNNOKgP0jmu-lEigjr5HGZy4P2qhAjm8O4HzDelb8CCGnku-tLA" />
-                    <span class="text-label-md font-label-md">Google</span>
+            <div class="flex gap-md mb-xl">
+                <button class="spring-btn flex-1 h-14 border-2 border-outline-variant/30 rounded-full flex items-center justify-center gap-sm hover:bg-surface-container transition-colors" data-google-auth="register" type="button">
+                    <img alt="Google" class="w-5 h-5" src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" />
+                    <span class="text-label-md font-label-md text-on-surface">Google</span>
                 </button>
                 
             </div>

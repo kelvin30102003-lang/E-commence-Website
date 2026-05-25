@@ -218,7 +218,7 @@ $authRedirectQuery = $redirectParam !== '' ? '?redirect=' . rawurlencode($redire
                     <!-- Social Logins -->
                     <div class="flex gap-md">
                         <button class="spring-btn flex-1 h-14 border-2 border-outline-variant/30 rounded-full flex items-center justify-center gap-sm hover:bg-surface-container transition-colors" data-google-auth="login" type="button">
-                            <span class="material-symbols-outlined text-on-surface" data-icon="google">google</span>
+                            <img alt="Google" class="w-5 h-5" src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" />
                             <span class="text-label-md font-label-md text-on-surface">Google</span>
                         </button>
                         
