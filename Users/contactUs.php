@@ -22,7 +22,6 @@ $formState = [
 
 $dbError = null;
 $formError = null;
-$formSuccess = null;
 
 try {
     $pdo = shop_db();
@@ -36,7 +35,6 @@ try {
 
         try {
             shop_save_contact_message($pdo, $formState);
-            $formSuccess = 'Message sent successfully. We will reply soon.';
             $formState = [
                 'full_name' => '',
                 'email' => '',
@@ -225,11 +223,6 @@ try {
                 <?= shop_h($formError) ?>
             </div>
         <?php endif; ?>
-        <?php if ($formSuccess !== null): ?>
-            <div class="mb-lg rounded-xl border border-green-200 bg-secondary-container px-md py-sm text-sm text-on-secondary-container">
-                <?= shop_h($formSuccess) ?>
-            </div>
-        <?php endif; ?>
         <!-- Header Section -->
         <div class="mb-xl text-center md:text-left">
             <h2 class="text-display-lg font-headline-lg text-primary mb-sm">Let's be friends!</h2>
@@ -338,7 +331,7 @@ try {
             <span class="text-label-sm font-label-sm">Shop</span>
         </a>
         <a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1.5 transition-all duration-300 ease-out scale-90" data-ajax="true" href="contactUs.php">
-            <span class="material-symbols-outlined" data-icon="chat_bubble" style="font-variation-settings: 'FILL' 1;">chat_bubble</span>
+            <span class="material-symbols-outlined" data-icon="mail" style="font-variation-settings: 'FILL' 1;">mail</span>
             <span class="text-label-sm font-label-sm">Contact</span>
         </a>
         <a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors" data-ajax="true" href="../Auth/login.php">

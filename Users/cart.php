@@ -2,11 +2,12 @@
 
 declare(strict_types=1);
 
-$activePage = 'shop';
+$activePage = 'cart';
 
 require_once __DIR__ . '/includes/shop_backend.php';
 shop_start_session();
 
+$isDrawer = isset($_GET['drawer']) && (string)$_GET['drawer'] === '1';
 $dbError = null;
 $cart = [
     'items' => [],
@@ -31,7 +32,7 @@ try {
             shop_cart_clear();
         }
 
-        header('Location: cart.php');
+        header('Location: cart.php' . ($isDrawer ? '?drawer=1' : ''));
         exit;
     }
 
@@ -50,6 +51,7 @@ try {
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet"/>
     <style>
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -65,6 +67,10 @@ try {
         .qty-input[type="number"] {
             -moz-appearance: textfield;
             appearance: textfield;
+        }
+        .empty-cart-illustration {
+            width: min(260px, 72vw);
+            height: auto;
         }
     </style>
     <script id="tailwind-config">
@@ -164,28 +170,18 @@ try {
     </script>
 </head>
 <body class="bg-background text-on-surface font-body-md overflow-x-hidden">
-<?php require_once __DIR__ . '/../Templates/header.php'; ?>
 
-<main class="pt-24 pb-xl px-4 md:px-margin-desktop max-w-[1280px] mx-auto" id="app-main">
+<main class="<?= $isDrawer ? 'min-h-screen px-6 py-8' : 'min-h-screen pb-xl pt-xl px-4 md:px-margin-desktop max-w-[1280px] mx-auto' ?>" id="app-main">
     <?php if ($dbError !== null): ?>
         <section class="mb-lg rounded-xl border border-red-200 bg-error-container px-md py-sm text-sm text-on-error-container">
             DB connection error: <?= shop_h($dbError) ?>
         </section>
     <?php endif; ?>
 
-    <section class="mb-lg flex items-end justify-between gap-sm">
-        <div>
-            <h1 class="text-headline-lg font-headline-lg text-primary">Your Cart</h1>
-            <p class="text-on-surface-variant"><?= number_format((int)$cart['item_count']) ?> item(s) selected.</p>
-        </div>
-        <a class="px-lg py-sm rounded-full border border-outline-variant text-on-surface hover:bg-surface-container-low" href="shop.php">Continue Shopping</a>
-    </section>
-
     <?php if (count($cart['items']) === 0): ?>
-        <section class="bg-surface-container-lowest rounded-2xl p-xl soft-shadow text-center">
-            <h2 class="text-headline-md font-headline-md text-primary mb-sm">Your cart is empty</h2>
-            <p class="text-on-surface-variant mb-lg">Add products to cart, then continue to checkout.</p>
-            <a class="inline-flex px-lg py-sm rounded-full bg-primary text-on-primary font-label-md" href="shop.php">Browse Products</a>
+        <section class="<?= $isDrawer ? 'min-h-[calc(100vh-4rem)]' : 'min-h-[58vh]' ?> flex flex-col items-center justify-center text-center px-md py-xl">
+            <img class="empty-cart-illustration mb-lg" src="../Assect/images/empty-cart.svg" alt="Empty shopping cart"/>
+            <p class="text-[22px] leading-8 font-body-md text-black">No products in the cart.</p>
         </section>
     <?php else: ?>
         <section class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
@@ -215,18 +211,13 @@ try {
 
                         <div class="flex items-center gap-sm">
                             <form class="flex items-center gap-sm" data-qty-form method="post">
-                                <input name="action" type="hidden" value="update_qty"/>
+                                <input data-cart-action name="action" type="hidden" value="update_qty"/>
                                 <input name="line_key" type="hidden" value="<?= shop_h((string)$item['line_key']) ?>"/>
                                 <div class="inline-flex items-center rounded-xl border border-outline-variant/50 overflow-hidden bg-surface-container-low">
                                     <button class="w-10 h-10 flex items-center justify-center text-on-surface hover:bg-surface-container-high disabled:opacity-40 disabled:cursor-not-allowed" data-qty-minus type="button">-</button>
                                     <input class="qty-input w-14 h-10 text-center bg-white border-x border-outline-variant/40 outline-none" data-qty-input max="<?= (int)$item['stock_quantity'] ?>" min="1" name="quantity" type="number" value="<?= (int)$item['quantity'] ?>"/>
                                     <button class="w-10 h-10 flex items-center justify-center text-on-surface hover:bg-surface-container-high disabled:opacity-40 disabled:cursor-not-allowed" data-qty-plus type="button">+</button>
                                 </div>
-                            </form>
-                            <form method="post">
-                                <input name="action" type="hidden" value="remove_line"/>
-                                <input name="line_key" type="hidden" value="<?= shop_h((string)$item['line_key']) ?>"/>
-                                <button class="px-md py-sm rounded-lg bg-error-container text-on-error-container text-sm" type="submit">Remove</button>
                             </form>
                         </div>
 
@@ -268,15 +259,26 @@ try {
     <?php endif; ?>
 </main>
 
-<?php require_once __DIR__ . '/../Templates/footer.php'; ?>
 <script>
 (() => {
+    const notifyCartCount = () => {
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage({
+                type: 'luvshop:cart-count',
+                count: <?= (int)$cart['item_count'] ?>
+            }, window.location.origin);
+        }
+    };
+
+    notifyCartCount();
+
     const forms = document.querySelectorAll('[data-qty-form]');
     forms.forEach((form) => {
         const input = form.querySelector('[data-qty-input]');
         const minus = form.querySelector('[data-qty-minus]');
         const plus = form.querySelector('[data-qty-plus]');
-        if (!input || !minus || !plus) {
+        const action = form.querySelector('[data-cart-action]');
+        if (!input || !minus || !plus || !action) {
             return;
         }
 
@@ -313,12 +315,20 @@ try {
             }
 
             input.dataset.lastQty = String(current);
+            action.value = 'update_qty';
             isSubmitting = true;
             form.submit();
         };
 
         minus.addEventListener('click', () => {
             const current = normalize();
+            if (current <= 1) {
+                action.value = 'remove_line';
+                isSubmitting = true;
+                form.submit();
+                return;
+            }
+
             const next = clamp(current - 1);
             if (next !== current) {
                 input.value = String(next);

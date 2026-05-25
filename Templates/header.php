@@ -9,6 +9,7 @@ $inactiveLinkClass = 'text-on-surface-variant dark:text-on-surface-variant';
 require_once __DIR__ . '/firebase_bootstrap.php';
 $cartItemCount = function_exists('shop_cart_item_count') ? max(0, (int)shop_cart_item_count()) : 0;
 $profileIsActive = $activePage === 'profile';
+$cartDrawerAttribute = $activePage === 'cart' ? '' : ' data-cart-drawer-trigger';
 ?>
 <script defer src="<?= $assetPrefix ?>Assect/js/site-ajax.js"></script>
 <style>
@@ -141,6 +142,54 @@ $profileIsActive = $activePage === 'profile';
             transform: translateX(245%);
         }
     }
+
+    .cart-drawer-shell {
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        pointer-events: none;
+    }
+
+    .cart-drawer-shell.is-open {
+        pointer-events: auto;
+    }
+
+    .cart-drawer-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(27, 28, 28, 0.34);
+        opacity: 0;
+        transition: opacity 260ms ease;
+    }
+
+    .cart-drawer-shell.is-open .cart-drawer-backdrop {
+        opacity: 1;
+    }
+
+    .cart-drawer-panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: min(560px, 100vw);
+        height: 100%;
+        background: #ffffff;
+        box-shadow: -18px 0 48px rgba(27, 28, 28, 0.16);
+        transform: translateX(100%);
+        transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .cart-drawer-shell.is-open .cart-drawer-panel {
+        transform: translateX(0);
+    }
+
+    .cart-drawer-frame {
+        width: 100%;
+        flex: 1;
+        border: 0;
+        background: #fbf9f8;
+    }
 </style>
 <div id="luvshop-page-loader" class="luvshop-page-loader" role="status" aria-live="polite" aria-label="Loading LuvShop">
     <div class="luvshop-loader-card">
@@ -204,10 +253,10 @@ $profileIsActive = $activePage === 'profile';
         <a class="<?= ($activePage === 'contact' ? $activeLinkClass : $inactiveLinkClass) . ' ' . $baseLinkClass ?>" data-ajax="true" href="<?= $navPrefix ?>contactUs.php">Contact</a>
     </nav>
     <div class="flex items-center gap-4 gap-md">
-        <a class="relative material-symbols-outlined text-primary hover:opacity-80 transition-opacity active:scale-95 duration-200" data-icon="shopping_cart" href="<?= $navPrefix ?>cart.php">
+        <a class="relative material-symbols-outlined text-primary hover:opacity-80 transition-opacity active:scale-95 duration-200"<?= $cartDrawerAttribute ?> data-icon="shopping_cart" href="<?= $navPrefix ?>cart.php" data-cart-link>
             shopping_cart
             <?php if ($cartItemCount > 0): ?>
-                <span class="absolute -top-2 -right-3 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-on-primary text-[10px] leading-[18px] text-center font-bold"><?= $cartItemCount > 99 ? '99+' : $cartItemCount ?></span>
+                <span class="absolute -top-2 -right-3 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-on-primary text-[10px] leading-[18px] text-center font-bold" data-cart-count-badge><?= $cartItemCount > 99 ? '99+' : $cartItemCount ?></span>
             <?php endif; ?>
         </a>
         <a
@@ -222,3 +271,111 @@ $profileIsActive = $activePage === 'profile';
         <a id="auth-link" class="hidden md:inline-flex md:mr-2 <?= $inactiveLinkClass . ' ' . $baseLinkClass ?>" data-ajax="true" data-login-href="<?= $authLoginHref ?>" href="<?= $authLoginHref ?>">Login</a>
     </div>
 </header>
+<div class="cart-drawer-shell" data-cart-drawer aria-hidden="true">
+    <div class="cart-drawer-backdrop" data-cart-drawer-close></div>
+    <aside class="cart-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="cart-drawer-title">
+        <div class="h-[100px] flex items-center justify-between border-b border-outline-variant/30 px-8">
+            <h2 id="cart-drawer-title" class="font-headline-md text-[26px] font-bold leading-none text-on-surface">Your Cart</h2>
+            <button class="material-symbols-outlined text-[36px] text-on-surface transition-opacity hover:opacity-70" data-cart-drawer-close type="button" aria-label="Close cart">
+                close
+            </button>
+        </div>
+        <iframe class="cart-drawer-frame" data-cart-drawer-frame title="Your Cart"></iframe>
+    </aside>
+</div>
+<script>
+    (() => {
+        const drawer = document.querySelector("[data-cart-drawer]");
+        const frame = drawer ? drawer.querySelector("[data-cart-drawer-frame]") : null;
+        const closeButtons = drawer ? drawer.querySelectorAll("[data-cart-drawer-close]") : [];
+
+        if (!drawer || !frame) {
+            return;
+        }
+
+        const drawerUrl = (href) => {
+            const url = new URL(href, window.location.href);
+            url.searchParams.set("drawer", "1");
+            return url.toString();
+        };
+
+        const closeCartPopups = () => {
+            document.querySelectorAll("[data-cart-popup]").forEach((popup) => {
+                popup.remove();
+            });
+        };
+
+        const updateCartCount = (count) => {
+            const normalizedCount = Math.max(0, parseInt(String(count), 10) || 0);
+            const cartLink = document.querySelector("[data-cart-link]");
+            if (!cartLink) {
+                return;
+            }
+
+            let badge = cartLink.querySelector("[data-cart-count-badge]");
+            if (normalizedCount <= 0) {
+                if (badge) {
+                    badge.remove();
+                }
+                closeCartPopups();
+                return;
+            }
+
+            if (!badge) {
+                badge = document.createElement("span");
+                badge.dataset.cartCountBadge = "true";
+                badge.className = "absolute -top-2 -right-3 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-on-primary text-[10px] leading-[18px] text-center font-bold";
+                cartLink.appendChild(badge);
+            }
+
+            badge.textContent = normalizedCount > 99 ? "99+" : String(normalizedCount);
+        };
+
+        const openDrawer = (href) => {
+            closeCartPopups();
+            frame.src = drawerUrl(href);
+            drawer.classList.add("is-open");
+            drawer.setAttribute("aria-hidden", "false");
+            document.documentElement.style.overflow = "hidden";
+        };
+
+        const closeDrawer = () => {
+            drawer.classList.remove("is-open");
+            drawer.setAttribute("aria-hidden", "true");
+            document.documentElement.style.overflow = "";
+        };
+
+        document.addEventListener("click", (event) => {
+            const target = event.target instanceof Element ? event.target : null;
+            const trigger = target ? target.closest("[data-cart-drawer-trigger]") : null;
+            if (!trigger || !(trigger instanceof HTMLAnchorElement)) {
+                return;
+            }
+
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+                return;
+            }
+
+            event.preventDefault();
+            openDrawer(trigger.href);
+        });
+
+        closeButtons.forEach((button) => {
+            button.addEventListener("click", closeDrawer);
+        });
+
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && drawer.classList.contains("is-open")) {
+                closeDrawer();
+            }
+        });
+
+        window.addEventListener("message", (event) => {
+            if (event.origin !== window.location.origin || !event.data || event.data.type !== "luvshop:cart-count") {
+                return;
+            }
+
+            updateCartCount(event.data.count);
+        });
+    })();
+</script>

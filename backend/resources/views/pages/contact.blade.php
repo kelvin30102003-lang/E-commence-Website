@@ -238,7 +238,7 @@
 <span class="text-label-sm font-label-sm">Shop</span>
 </div>
 <div class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1.5 transition-all duration-300 ease-out scale-90">
-<span class="material-symbols-outlined" data-icon="chat_bubble" style="font-variation-settings: 'FILL' 1;">chat_bubble</span>
+<span class="material-symbols-outlined" data-icon="mail" style="font-variation-settings: 'FILL' 1;">mail</span>
 <span class="text-label-sm font-label-sm">Contact</span>
 </div>
 <div class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors">

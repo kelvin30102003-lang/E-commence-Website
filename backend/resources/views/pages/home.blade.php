@@ -257,10 +257,6 @@
         </section>
     </main>
     @include('partials.footer')
-    <!-- FAB (Suppressed on Home by logic but often useful for specific triggers) -->
-    <button class="fixed bottom-margin-desktop right-margin-desktop w-14 h-14 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center hover:scale-110 active:scale-95 transition-transform z-40">
-        <span class="material-symbols-outlined" data-icon="chat">chat</span>
-    </button>
 </body>
 
 </html>

@@ -180,9 +180,8 @@ $estimatedTotal = round((float)$cart['subtotal'] + $shippingFeePreview, 2);
     </script>
 </head>
 <body class="bg-background text-on-surface font-body-md overflow-x-hidden">
-<?php require_once __DIR__ . '/../Templates/header.php'; ?>
 
-<main class="pt-24 pb-xl px-4 md:px-margin-desktop max-w-[1280px] mx-auto" id="app-main">
+<main class="min-h-screen pb-xl pt-xl px-4 md:px-margin-desktop max-w-[1280px] mx-auto" id="app-main">
     <?php if ($dbError !== null): ?>
         <section class="mb-lg rounded-xl border border-red-200 bg-error-container px-md py-sm text-sm text-on-error-container">
             DB connection error: <?= shop_h($dbError) ?>
@@ -354,6 +353,5 @@ $estimatedTotal = round((float)$cart['subtotal'] + $shippingFeePreview, 2);
     <?php endif; ?>
 </main>
 
-<?php require_once __DIR__ . '/../Templates/footer.php'; ?>
 </body>
 </html>

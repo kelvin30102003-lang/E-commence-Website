@@ -9,6 +9,7 @@
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <style>
         .material-symbols-outlined {
@@ -153,7 +154,7 @@
 <div class="flex items-center justify-between mt-auto">
 <span class="text-headline-md font-bold text-on-surface">$24.00</span>
 <button class="bg-primary text-on-primary h-12 px-6 rounded-full font-label-md flex items-center gap-xs hover:opacity-90 active:scale-95 transition-all inner-glow">
-<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+<i class="bi bi-cart"></i>
                             Add
                         </button>
 </div>
@@ -171,7 +172,7 @@
 <div class="flex items-center justify-between mt-auto">
 <span class="text-headline-md font-bold text-on-surface">$38.50</span>
 <button class="bg-primary text-on-primary h-12 px-6 rounded-full font-label-md flex items-center gap-xs hover:opacity-90 active:scale-95 transition-all inner-glow">
-<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+<i class="bi bi-cart"></i>
                             Add
                         </button>
 </div>
@@ -188,7 +189,7 @@
 <div class="flex items-center justify-between mt-auto">
 <span class="text-headline-md font-bold text-on-surface">$89.00</span>
 <button class="bg-primary text-on-primary h-12 px-6 rounded-full font-label-md flex items-center gap-xs hover:opacity-90 active:scale-95 transition-all inner-glow">
-<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+<i class="bi bi-cart"></i>
                             Add
                         </button>
 </div>
@@ -206,7 +207,7 @@
 <div class="flex items-center justify-between mt-auto">
 <span class="text-headline-md font-bold text-on-surface">$15.99</span>
 <button class="bg-primary text-on-primary h-12 px-6 rounded-full font-label-md flex items-center gap-xs hover:opacity-90 active:scale-95 transition-all inner-glow">
-<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+<i class="bi bi-cart"></i>
                             Add
                         </button>
 </div>
@@ -224,7 +225,7 @@
 <div class="flex items-center justify-between mt-auto">
 <span class="text-headline-md font-bold text-on-surface">$12.50</span>
 <button class="bg-primary text-on-primary h-12 px-6 rounded-full font-label-md flex items-center gap-xs hover:opacity-90 active:scale-95 transition-all inner-glow">
-<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+<i class="bi bi-cart"></i>
                             Add
                         </button>
 </div>
@@ -241,7 +242,7 @@
 <div class="flex items-center justify-between mt-auto">
 <span class="text-headline-md font-bold text-on-surface">$18.00</span>
 <button class="bg-primary text-on-primary h-12 px-6 rounded-full font-label-md flex items-center gap-xs hover:opacity-90 active:scale-95 transition-all inner-glow">
-<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+<i class="bi bi-cart"></i>
                             Add
                         </button>
 </div>
@@ -258,7 +259,7 @@
 <div class="flex items-center justify-between mt-auto">
 <span class="text-headline-md font-bold text-on-surface">$45.00</span>
 <button class="bg-primary text-on-primary h-12 px-6 rounded-full font-label-md flex items-center gap-xs hover:opacity-90 active:scale-95 transition-all inner-glow">
-<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+<i class="bi bi-cart"></i>
                             Add
                         </button>
 </div>
@@ -276,7 +277,7 @@
 <div class="flex items-center justify-between mt-auto">
 <span class="text-headline-md font-bold text-on-surface">$14.00</span>
 <button class="bg-primary text-on-primary h-12 px-6 rounded-full font-label-md flex items-center gap-xs hover:opacity-90 active:scale-95 transition-all inner-glow">
-<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+<i class="bi bi-cart"></i>
                             Add
                         </button>
 </div>
@@ -346,7 +347,7 @@
 <span class="text-label-sm font-label-sm">Shop</span>
 </a>
 <a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors" href="#">
-<span class="material-symbols-outlined" data-icon="chat_bubble">chat_bubble</span>
+<span class="material-symbols-outlined" data-icon="mail">mail</span>
 <span class="text-label-sm font-label-sm">Contact</span>
 </a>
 <a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors" href="#">

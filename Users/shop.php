@@ -116,6 +116,7 @@ $isAjaxRequest = shop_is_ajax_request();
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <style>
         .material-symbols-outlined {
@@ -273,7 +274,7 @@ $isAjaxRequest = shop_is_ajax_request();
                 </div>
             </div>
             <div class="px-lg pb-lg">
-                <a class="w-full inline-flex justify-center items-center rounded-xl bg-primary text-on-primary py-md font-semibold text-2xl leading-none hover:opacity-90" href="cart.php">
+                <a class="w-full inline-flex justify-center items-center rounded-xl bg-primary text-on-primary py-md font-semibold text-2xl leading-none hover:opacity-90" data-cart-drawer-trigger href="cart.php">
                     View cart
                 </a>
             </div>
@@ -380,7 +381,11 @@ $isAjaxRequest = shop_is_ajax_request();
 <div class="group bg-surface-container-lowest rounded-[28px] p-lg soft-shadow hover:-translate-y-2 transition-all duration-500 flex flex-col h-full">
 <a class="relative aspect-[4/5] rounded-2xl overflow-hidden mb-md bg-surface-container-low block"<?= $galleryAttribute ?> href="<?= shop_h($productDetailLink) ?>">
     <?php if ($primaryImage !== ''): ?>
-<img alt="<?= shop_h($name) ?>" class="w-full h-full object-cover transition-transform duration-700 transition-opacity duration-200 group-hover:scale-105" data-gallery-image="1" decoding="async" loading="lazy" src="<?= shop_h($primaryImage) ?>"/>
+<div class="flex h-full transition-transform duration-700 ease-out will-change-transform" data-gallery-track>
+    <?php foreach (array_values(array_unique($images)) as $galleryImage): ?>
+<img alt="<?= shop_h($name) ?>" class="w-full h-full object-cover flex-none" decoding="async" loading="lazy" src="<?= shop_h($galleryImage) ?>"/>
+    <?php endforeach; ?>
+</div>
     <?php else: ?>
 <div class="w-full h-full bg-gradient-to-br <?= shop_h(shop_placeholder_gradient($index)) ?> flex items-center justify-center">
 <span class="text-2xl font-bold text-primary"><?= shop_h(strtoupper(substr($name, 0, 1))) ?></span>
@@ -408,7 +413,7 @@ $isAjaxRequest = shop_is_ajax_request();
 <input name="variant_id" type="hidden" value="0"/>
 <input name="quantity" type="hidden" value="1"/>
 <button class="h-10 px-4 rounded-full text-sm font-label-md flex items-center gap-xs whitespace-nowrap transition-all inner-glow <?= $stock > 0 ? 'bg-primary text-on-primary hover:opacity-90 active:scale-95' : 'bg-surface-container-high text-on-surface-variant cursor-not-allowed' ?>" type="submit" <?= $stock > 0 ? '' : 'disabled' ?>>
-<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+<i class="bi bi-cart"></i>
                             Add
                         </button>
 </form>
@@ -502,7 +507,7 @@ $isAjaxRequest = shop_is_ajax_request();
 <span class="text-label-sm font-label-sm">Shop</span>
 </a>
 <a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors" href="contactUs.php">
-<span class="material-symbols-outlined" data-icon="chat_bubble">chat_bubble</span>
+<span class="material-symbols-outlined" data-icon="mail">mail</span>
 <span class="text-label-sm font-label-sm">Contact</span>
 </a>
 <a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high transition-colors" href="profile.php">
@@ -559,20 +564,22 @@ $isAjaxRequest = shop_is_ajax_request();
                 return;
             }
 
-            const imageElement = card.querySelector('img[data-gallery-image]');
-            if (!imageElement || imageElement.dataset.galleryReady === '1') {
+            const track = card.querySelector('[data-gallery-track]');
+            if (!track || track.dataset.galleryReady === '1') {
                 return;
             }
-            imageElement.dataset.galleryReady = '1';
+
+            const slides = Array.from(track.querySelectorAll('img'));
+            if (slides.length < 2) {
+                return;
+            }
+
+            track.dataset.galleryReady = '1';
 
             let index = 0;
             const rotate = () => {
-                index = (index + 1) % images.length;
-                imageElement.classList.add('opacity-0');
-                window.setTimeout(() => {
-                    imageElement.src = images[index];
-                    imageElement.classList.remove('opacity-0');
-                }, 160);
+                index = (index + 1) % slides.length;
+                track.style.transform = `translateX(-${index * 100}%)`;
             };
 
             const intervalId = window.setInterval(rotate, 2600);

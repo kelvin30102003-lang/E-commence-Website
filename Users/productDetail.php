@@ -191,6 +191,7 @@ $reviewsAjaxUrl = 'productDetail.php?' . http_build_query(array_merge($ajaxQuery
     <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet"/>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <style>
         .material-symbols-outlined {
@@ -357,7 +358,7 @@ $reviewsAjaxUrl = 'productDetail.php?' . http_build_query(array_merge($ajaxQuery
                 </div>
             </div>
             <div class="px-lg pb-lg">
-                <a class="w-full inline-flex justify-center items-center rounded-xl bg-primary text-on-primary py-md font-semibold text-2xl leading-none hover:opacity-90" href="cart.php">
+                <a class="w-full inline-flex justify-center items-center rounded-xl bg-primary text-on-primary py-md font-semibold text-2xl leading-none hover:opacity-90" data-cart-drawer-trigger href="cart.php">
                     View cart
                 </a>
             </div>
@@ -486,7 +487,7 @@ $reviewsAjaxUrl = 'productDetail.php?' . http_build_query(array_merge($ajaxQuery
 
                     <div class="flex flex-col sm:flex-row gap-sm">
                         <button class="w-full sm:w-auto px-xl py-md rounded-full font-label-md flex items-center justify-center gap-sm inner-glow <?= $inStock ? 'bg-primary text-on-primary hover:opacity-90 active:scale-95' : 'bg-surface-container text-on-surface-variant cursor-not-allowed' ?>" type="submit" <?= $inStock ? '' : 'disabled' ?>>
-                            <span class="material-symbols-outlined">add_shopping_cart</span>
+                            <i class="bi bi-cart"></i>
                             Add to Cart
                         </button>
                     </div>

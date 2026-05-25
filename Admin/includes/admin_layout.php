@@ -14,6 +14,7 @@ function admin_nav_items(): array
         ['key' => 'coupons', 'label' => 'Coupons', 'icon' => 'sell', 'href' => 'manageCoupons.php'],
         ['key' => 'payments', 'label' => 'Payments', 'icon' => 'payments', 'href' => 'managePayments.php'],
         ['key' => 'users', 'label' => 'Users', 'icon' => 'group', 'href' => 'manageUsers.php'],
+        ['key' => 'messages', 'label' => 'Messages', 'icon' => 'mail', 'href' => 'manageMessages.php'],
         ['key' => 'logs', 'label' => 'Analytics', 'icon' => 'analytics', 'href' => 'activityLogs.php'],
     ];
 }
