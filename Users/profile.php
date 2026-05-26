@@ -152,6 +152,10 @@ shop_start_session();
                 <div class="mt-md pt-md border-t border-outline-variant/30 text-sm text-on-surface-variant">
                     <p>Account managed with Firebase.</p>
                 </div>
+                <a class="mt-md flex items-center justify-center gap-sm rounded-full bg-primary px-md py-sm text-sm font-semibold text-on-primary" href="track.php">
+                    <span class="material-symbols-outlined text-[18px]">local_shipping</span>
+                    Track Delivery
+                </a>
             </div>
         </aside>
 

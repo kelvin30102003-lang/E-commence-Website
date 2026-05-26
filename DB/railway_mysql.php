@@ -111,7 +111,8 @@ function railway_mysql_db(): PDO
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
-            PDO::ATTR_PERSISTENT => railway_mysql_bool($config['persistent'] ?? true, true),
+            PDO::ATTR_TIMEOUT => 3,
+            PDO::ATTR_PERSISTENT => railway_mysql_bool($config['persistent'] ?? false, false),
         ]
     );
 

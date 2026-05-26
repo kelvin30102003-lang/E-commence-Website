@@ -90,13 +90,21 @@
             }
         }
 
-        const response = await fetch(url, {
-            credentials: "same-origin",
-            headers: {
-                "X-Requested-With": "XMLHttpRequest",
-                "X-Admin-Ajax": "1",
-            },
-        });
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 2500);
+        let response;
+        try {
+            response = await fetch(url, {
+                credentials: "same-origin",
+                signal: controller.signal,
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                    "X-Admin-Ajax": "1",
+                },
+            });
+        } finally {
+            window.clearTimeout(timeout);
+        }
 
         if (!response.ok) {
             throw new Error("Failed to fetch page: " + response.status);
@@ -278,33 +286,8 @@
         navigate(actionUrl.toString());
     }
 
-    let prefetchTimer = null;
     function onPrefetchIntent(event) {
-        const targetElement = getEventTargetElement(event);
-        if (!targetElement) {
-            return;
-        }
-
-        const anchor = targetElement.closest("a" + AJAX_SELECTOR);
-        if (!anchor) {
-            return;
-        }
-
-        const href = anchor.getAttribute("href") || "";
-        const targetUrl = normalizeUrl(href);
-        if (!targetUrl || !isAdminUrl(targetUrl)) {
-            return;
-        }
-
-        if (prefetchTimer !== null) {
-            window.clearTimeout(prefetchTimer);
-        }
-
-        prefetchTimer = window.setTimeout(() => {
-            fetchDocument(targetUrl, true).catch(() => {
-                return null;
-            });
-        }, 90);
+        return;
     }
 
     window.addEventListener("popstate", () => {

@@ -8,7 +8,7 @@ $activeLinkClass = 'text-primary dark:text-primary-fixed-dim';
 $inactiveLinkClass = 'text-on-surface-variant dark:text-on-surface-variant';
 require_once __DIR__ . '/firebase_bootstrap.php';
 $cartItemCount = function_exists('shop_cart_item_count') ? max(0, (int)shop_cart_item_count()) : 0;
-$profileIsActive = $activePage === 'profile';
+$profileIsActive = in_array($activePage, ['profile', 'track'], true);
 $cartDrawerAttribute = $activePage === 'cart' ? '' : ' data-cart-drawer-trigger';
 ?>
 <script defer src="<?= $assetPrefix ?>Assect/js/site-ajax.js"></script>
@@ -216,7 +216,7 @@ $cartDrawerAttribute = $activePage === 'cart' ? '' : ' data-cart-drawer-trigger'
         }
 
         const startedAt = performance.now();
-        const minVisibleMs = 1500;
+        const minVisibleMs = 250;
         let isHiding = false;
 
         const hideLoader = () => {
@@ -230,7 +230,7 @@ $cartDrawerAttribute = $activePage === 'cart' ? '' : ' data-cart-drawer-trigger'
                 loader.classList.add("is-loaded");
                 window.setTimeout(() => {
                     loader.remove();
-                }, 460);
+                }, 180);
             }, remainingTime);
         };
 
@@ -238,7 +238,7 @@ $cartDrawerAttribute = $activePage === 'cart' ? '' : ' data-cart-drawer-trigger'
             hideLoader();
         } else {
             window.addEventListener("load", hideLoader, { once: true });
-            window.setTimeout(hideLoader, 3600);
+            window.setTimeout(hideLoader, 1200);
         }
     })();
 </script>
@@ -250,6 +250,7 @@ $cartDrawerAttribute = $activePage === 'cart' ? '' : ' data-cart-drawer-trigger'
     <nav class="hidden md:flex items-center gap-8 gap-xl">
         <a class="<?= ($activePage === 'home' ? $activeLinkClass : $inactiveLinkClass) . ' ' . $baseLinkClass ?>" data-ajax="true" href="<?= $navPrefix ?>Home.php">Home</a>
         <a class="<?= ($activePage === 'shop' ? $activeLinkClass : $inactiveLinkClass) . ' ' . $baseLinkClass ?>" data-ajax="true" href="<?= $navPrefix ?>shop.php">Shop</a>
+        <a class="<?= ($activePage === 'track' ? $activeLinkClass : $inactiveLinkClass) . ' ' . $baseLinkClass ?>" data-ajax="true" href="<?= $navPrefix ?>track.php">Track</a>
         <a class="<?= ($activePage === 'contact' ? $activeLinkClass : $inactiveLinkClass) . ' ' . $baseLinkClass ?>" data-ajax="true" href="<?= $navPrefix ?>contactUs.php">Contact</a>
     </nav>
     <div class="flex items-center gap-4 gap-md">
@@ -288,6 +289,8 @@ $cartDrawerAttribute = $activePage === 'cart' ? '' : ' data-cart-drawer-trigger'
         const drawer = document.querySelector("[data-cart-drawer]");
         const frame = drawer ? drawer.querySelector("[data-cart-drawer-frame]") : null;
         const closeButtons = drawer ? drawer.querySelectorAll("[data-cart-drawer-close]") : [];
+        const cartPageUrl = <?= json_encode($navPrefix . 'cart.php', JSON_UNESCAPED_SLASHES) ?>;
+        const checkoutPageUrl = <?= json_encode($navPrefix . 'checkout.php', JSON_UNESCAPED_SLASHES) ?>;
 
         if (!drawer || !frame) {
             return;
@@ -339,6 +342,18 @@ $cartDrawerAttribute = $activePage === 'cart' ? '' : ' data-cart-drawer-trigger'
             document.documentElement.style.overflow = "hidden";
         };
 
+        const autoOpenRequestedDrawer = () => {
+            const url = new URL(window.location.href);
+            const mode = url.searchParams.get("open_cart");
+            if (mode !== "cart" && mode !== "checkout") {
+                return;
+            }
+
+            openDrawer(mode === "checkout" ? checkoutPageUrl : cartPageUrl);
+            url.searchParams.delete("open_cart");
+            window.history.replaceState(window.history.state, "", url.toString());
+        };
+
         const closeDrawer = () => {
             drawer.classList.remove("is-open");
             drawer.setAttribute("aria-hidden", "true");
@@ -377,5 +392,7 @@ $cartDrawerAttribute = $activePage === 'cart' ? '' : ' data-cart-drawer-trigger'
 
             updateCartCount(event.data.count);
         });
+
+        autoOpenRequestedDrawer();
     })();
 </script>

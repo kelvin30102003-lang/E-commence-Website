@@ -41,6 +41,11 @@ try {
     $dbError = $exception->getMessage();
 }
 
+$isLoggedIn = shop_user_is_logged_in();
+$checkoutHref = $isLoggedIn
+    ? 'checkout.php' . ($isDrawer ? '?drawer=1' : '')
+    : shop_login_url('../Users/Home.php?open_cart=checkout');
+
 ?>
 <!DOCTYPE html>
 <html class="light" lang="en">
@@ -213,10 +218,15 @@ try {
                             <form class="flex items-center gap-sm" data-qty-form method="post">
                                 <input data-cart-action name="action" type="hidden" value="update_qty"/>
                                 <input name="line_key" type="hidden" value="<?= shop_h((string)$item['line_key']) ?>"/>
+                                <input data-qty-hidden name="quantity" type="hidden" value="<?= (int)$item['quantity'] ?>"/>
                                 <div class="inline-flex items-center rounded-xl border border-outline-variant/50 overflow-hidden bg-surface-container-low">
-                                    <button class="w-10 h-10 flex items-center justify-center text-on-surface hover:bg-surface-container-high disabled:opacity-40 disabled:cursor-not-allowed" data-qty-minus type="button">-</button>
-                                    <input class="qty-input w-14 h-10 text-center bg-white border-x border-outline-variant/40 outline-none" data-qty-input max="<?= (int)$item['stock_quantity'] ?>" min="1" name="quantity" type="number" value="<?= (int)$item['quantity'] ?>"/>
-                                    <button class="w-10 h-10 flex items-center justify-center text-on-surface hover:bg-surface-container-high disabled:opacity-40 disabled:cursor-not-allowed" data-qty-plus type="button">+</button>
+                                    <?php if ((int)$item['quantity'] <= 1): ?>
+                                        <button class="w-10 h-10 flex items-center justify-center text-on-surface hover:bg-surface-container-high disabled:opacity-40 disabled:cursor-not-allowed" data-qty-minus name="action" value="remove_line" type="submit">-</button>
+                                    <?php else: ?>
+                                        <button class="w-10 h-10 flex items-center justify-center text-on-surface hover:bg-surface-container-high disabled:opacity-40 disabled:cursor-not-allowed" data-qty-minus name="quantity" value="<?= max(1, (int)$item['quantity'] - 1) ?>" type="submit">-</button>
+                                    <?php endif; ?>
+                                    <input class="qty-input w-14 h-10 text-center bg-white border-x border-outline-variant/40 outline-none" data-qty-input max="<?= (int)$item['stock_quantity'] ?>" min="1" type="number" value="<?= (int)$item['quantity'] ?>"/>
+                                    <button class="w-10 h-10 flex items-center justify-center text-on-surface hover:bg-surface-container-high disabled:opacity-40 disabled:cursor-not-allowed" data-qty-plus name="quantity" value="<?= min((int)$item['stock_quantity'], (int)$item['quantity'] + 1) ?>" type="submit">+</button>
                                 </div>
                             </form>
                         </div>
@@ -246,7 +256,7 @@ try {
                         <span class="font-semibold">Estimated Total</span>
                         <span class="text-xl font-bold text-on-surface"><?= shop_h(shop_money((float)$cart['subtotal'])) ?></span>
                     </div>
-                    <a class="mt-lg w-full inline-flex justify-center items-center rounded-full bg-primary text-on-primary py-md font-semibold hover:opacity-90" data-checkout-link href="checkout.php">
+                    <a class="mt-lg w-full inline-flex justify-center items-center rounded-full bg-primary text-on-primary py-md font-semibold hover:opacity-90" data-checkout-link <?= $isLoggedIn ? '' : 'data-requires-login="true" ' ?>href="<?= shop_h($checkoutHref) ?>"<?= (!$isLoggedIn && $isDrawer) ? ' target="_top"' : '' ?>>
                         Checkout
                     </a>
                     <form class="mt-sm" method="post" onsubmit="return confirm('Clear all items from cart?');">
@@ -272,13 +282,42 @@ try {
 
     notifyCartCount();
 
+    const checkoutReturnUrl = () => {
+        let parentUrl = '../Users/Home.php?open_cart=checkout';
+        try {
+            if (window.parent && window.parent !== window && window.parent.location) {
+                const url = new URL(window.parent.location.href);
+                url.searchParams.set('open_cart', 'checkout');
+                parentUrl = url.toString();
+            }
+        } catch (_error) {
+        }
+        return parentUrl;
+    };
+
+    document.querySelectorAll('[data-checkout-link]').forEach((link) => {
+        link.addEventListener('click', (event) => {
+            if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+                return;
+            }
+
+            if (link.dataset.requiresLogin === 'true' && window.top && window.top !== window) {
+                event.preventDefault();
+                const loginUrl = new URL(link.href, window.location.href);
+                loginUrl.searchParams.set('redirect', checkoutReturnUrl());
+                window.top.location.href = loginUrl.toString();
+            }
+        });
+    });
+
     const forms = document.querySelectorAll('[data-qty-form]');
     forms.forEach((form) => {
         const input = form.querySelector('[data-qty-input]');
+        const hiddenQty = form.querySelector('[data-qty-hidden]');
         const minus = form.querySelector('[data-qty-minus]');
         const plus = form.querySelector('[data-qty-plus]');
         const action = form.querySelector('[data-cart-action]');
-        if (!input || !minus || !plus || !action) {
+        if (!input || !hiddenQty || !minus || !plus || !action) {
             return;
         }
 
@@ -297,6 +336,7 @@ try {
             const raw = parseInt(input.value || '1', 10);
             const value = clamp(Number.isNaN(raw) ? 1 : raw);
             input.value = String(value);
+            hiddenQty.value = String(value);
             return value;
         };
 
@@ -315,15 +355,18 @@ try {
             }
 
             input.dataset.lastQty = String(current);
+            hiddenQty.value = String(current);
             action.value = 'update_qty';
             isSubmitting = true;
             form.submit();
         };
 
-        minus.addEventListener('click', () => {
+        minus.addEventListener('click', (event) => {
+            event.preventDefault();
             const current = normalize();
             if (current <= 1) {
                 action.value = 'remove_line';
+                hiddenQty.value = '0';
                 isSubmitting = true;
                 form.submit();
                 return;
@@ -332,15 +375,18 @@ try {
             const next = clamp(current - 1);
             if (next !== current) {
                 input.value = String(next);
+                hiddenQty.value = String(next);
                 submitIfChanged();
             }
         });
 
-        plus.addEventListener('click', () => {
+        plus.addEventListener('click', (event) => {
+            event.preventDefault();
             const current = normalize();
             const next = clamp(current + 1);
             if (next !== current) {
                 input.value = String(next);
+                hiddenQty.value = String(next);
                 submitIfChanged();
             }
         });

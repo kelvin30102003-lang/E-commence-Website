@@ -36,23 +36,69 @@ function shop_cache_key(string $namespace, array $payload = []): string
     return 'luvshop:' . $namespace . ':' . hash('sha256', $encoded);
 }
 
+function shop_file_cache_path(string $key): string
+{
+    $dir = dirname(__DIR__) . DIRECTORY_SEPARATOR . '.shop_cache';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+    }
+    return $dir . DIRECTORY_SEPARATOR . hash('sha256', $key) . '.cache';
+}
+
+function shop_file_cache_fetch(string $key, mixed &$payload): bool
+{
+    $payload = null;
+    $path = shop_file_cache_path($key);
+    if (!is_file($path)) {
+        return false;
+    }
+
+    $raw = @file_get_contents($path);
+    if (!is_string($raw) || $raw === '') {
+        return false;
+    }
+
+    $decoded = @unserialize($raw, ['allowed_classes' => false]);
+    if (!is_array($decoded) || ($decoded['__shop_file_cache'] ?? 0) !== 1) {
+        return false;
+    }
+
+    if ((int)($decoded['expires_at'] ?? 0) < time()) {
+        @unlink($path);
+        return false;
+    }
+
+    $payload = $decoded['payload'] ?? null;
+    return true;
+}
+
+function shop_file_cache_store(string $key, mixed $payload, int $ttlSeconds): void
+{
+    $wrapped = [
+        '__shop_file_cache' => 1,
+        'expires_at' => time() + max(1, $ttlSeconds),
+        'payload' => $payload,
+    ];
+    @file_put_contents(shop_file_cache_path($key), serialize($wrapped), LOCK_EX);
+}
+
 function shop_cache_fetch(string $key, mixed &$payload): bool
 {
     $payload = null;
 
     $redis = railway_redis_client();
     if (!$redis instanceof Redis) {
-        return false;
+        return shop_file_cache_fetch($key, $payload);
     }
 
     try {
         $raw = $redis->get($key);
     } catch (Throwable) {
-        return false;
+        return shop_file_cache_fetch($key, $payload);
     }
 
     if (!is_string($raw) || $raw === '') {
-        return false;
+        return shop_file_cache_fetch($key, $payload);
     }
 
     $decoded = @unserialize($raw, ['allowed_classes' => false]);
@@ -61,7 +107,7 @@ function shop_cache_fetch(string $key, mixed &$payload): bool
         $decoded = json_decode($raw, true);
     }
     if (!is_array($decoded) || ($decoded['__shop_cache'] ?? 0) !== 1 || !array_key_exists('payload', $decoded)) {
-        return false;
+        return shop_file_cache_fetch($key, $payload);
     }
 
     $payload = $decoded['payload'];
@@ -72,6 +118,7 @@ function shop_cache_store(string $key, mixed $payload, int $ttlSeconds): void
 {
     $redis = railway_redis_client();
     if (!$redis instanceof Redis) {
+        shop_file_cache_store($key, $payload, $ttlSeconds);
         return;
     }
 
@@ -85,6 +132,7 @@ function shop_cache_store(string $key, mixed $payload, int $ttlSeconds): void
     try {
         $redis->setex($key, $ttl, $encoded);
     } catch (Throwable) {
+        shop_file_cache_store($key, $payload, $ttlSeconds);
     }
 }
 
@@ -1162,16 +1210,9 @@ function shop_short_text(string $value, int $length = 86): string
 
 function shop_start_session(): void
 {
-    static $attempted = false;
-
     if (session_status() === PHP_SESSION_ACTIVE) {
         return;
     }
-
-    if ($attempted) {
-        return;
-    }
-    $attempted = true;
 
     if (headers_sent()) {
         return;
@@ -1188,12 +1229,20 @@ function shop_start_session(): void
     ]);
 }
 
+function shop_close_session_if_active(): void
+{
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+}
+
 function shop_current_user(): ?array
 {
     shop_start_session();
 
     $user = $_SESSION[SHOP_USER_SESSION_KEY] ?? null;
     if (!is_array($user)) {
+        shop_close_session_if_active();
         return null;
     }
 
@@ -1202,10 +1251,11 @@ function shop_current_user(): ?array
     $email = trim((string)($user['email'] ?? ''));
 
     if ($id <= 0 && $firebaseUid === '' && $email === '') {
+        shop_close_session_if_active();
         return null;
     }
 
-    return [
+    $currentUser = [
         'id' => $id,
         'firebase_uid' => $firebaseUid,
         'email' => $email,
@@ -1213,6 +1263,8 @@ function shop_current_user(): ?array
         'avatar' => trim((string)($user['avatar'] ?? '')),
         'role' => trim((string)($user['role'] ?? 'customer')),
     ];
+    shop_close_session_if_active();
+    return $currentUser;
 }
 
 function shop_user_is_logged_in(): bool
@@ -1264,6 +1316,7 @@ function shop_cart_storage(): array
 
     $raw = $_SESSION[SHOP_CART_SESSION_KEY] ?? [];
     if (!is_array($raw)) {
+        shop_close_session_if_active();
         return [];
     }
 
@@ -1289,6 +1342,7 @@ function shop_cart_storage(): array
         ];
     }
 
+    shop_close_session_if_active();
     return $normalized;
 }
 
@@ -1296,23 +1350,27 @@ function shop_cart_save_storage(array $cart): void
 {
     shop_start_session();
     $_SESSION[SHOP_CART_SESSION_KEY] = $cart;
+    shop_close_session_if_active();
 }
 
 function shop_cart_set_flash(array $payload): void
 {
     shop_start_session();
     $_SESSION[SHOP_CART_FLASH_KEY] = $payload;
+    shop_close_session_if_active();
 }
 
 function shop_cart_pull_flash(): ?array
 {
     shop_start_session();
     if (!isset($_SESSION[SHOP_CART_FLASH_KEY]) || !is_array($_SESSION[SHOP_CART_FLASH_KEY])) {
+        shop_close_session_if_active();
         return null;
     }
 
     $flash = $_SESSION[SHOP_CART_FLASH_KEY];
     unset($_SESSION[SHOP_CART_FLASH_KEY]);
+    shop_close_session_if_active();
     return $flash;
 }
 
@@ -1469,6 +1527,7 @@ function shop_cart_clear(): void
 {
     shop_start_session();
     unset($_SESSION[SHOP_CART_SESSION_KEY]);
+    shop_close_session_if_active();
 }
 
 function shop_cart_details(PDO $pdo): array
@@ -1577,6 +1636,7 @@ function shop_checkout_default_form(): array
         'postal_code' => '',
         'customer_note' => '',
         'payment_method' => 'cod',
+        'payment_transaction_id' => '',
         'shipping_method' => 'standard',
     ];
 }
@@ -1585,12 +1645,65 @@ function shop_payment_methods(): array
 {
     return [
         'cod' => 'Cash on Delivery',
-        'prepaid' => 'Prepaid',
+        'kbzpay' => 'KBZPay',
+        'wavepay' => 'WavePay',
+        'ayapay' => 'AYA Pay',
+        'cbpay' => 'CB Pay',
+    ];
+}
+
+function shop_manual_payment_seed_rows(): array
+{
+    return [
+        [
+            'name' => 'KBZPay',
+            'code' => 'kbzpay',
+            'account_name' => 'Myint Myat Aung',
+            'account_phone' => '******7400',
+            'account_number' => null,
+            'qr_image' => '../Assect/images/payment-qr/kbzpay.png',
+            'instructions' => 'Transfer the exact order total and upload your payment slip.',
+            'sort_order' => 10,
+        ],
+        [
+            'name' => 'WavePay',
+            'code' => 'wavepay',
+            'account_name' => 'LuvShop Myanmar',
+            'account_phone' => '09 400 000 002',
+            'account_number' => null,
+            'qr_image' => '../Assect/images/payment-qr/wavepay.png',
+            'instructions' => 'Transfer the exact order total and upload your payment slip.',
+            'sort_order' => 20,
+        ],
+        [
+            'name' => 'AYA Pay',
+            'code' => 'ayapay',
+            'account_name' => 'LuvShop Myanmar',
+            'account_phone' => '09 400 000 003',
+            'account_number' => 'AYA-000000003',
+            'qr_image' => '../Assect/images/payment-qr/ayapay.png',
+            'instructions' => 'Transfer the exact order total and upload your payment slip.',
+            'sort_order' => 30,
+        ],
+        [
+            'name' => 'CB Pay',
+            'code' => 'cbpay',
+            'account_name' => 'LuvShop Myanmar',
+            'account_phone' => '09 400 000 004',
+            'account_number' => 'CB-000000004',
+            'qr_image' => '../Assect/images/payment-qr/cbpay.png',
+            'instructions' => 'Transfer the exact order total and upload your payment slip.',
+            'sort_order' => 40,
+        ],
     ];
 }
 
 function shop_ensure_checkout_tables(PDO $pdo): void
 {
+    if (shop_can_skip_schema_bootstrap()) {
+        return;
+    }
+
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS orders (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -1621,6 +1734,7 @@ function shop_ensure_checkout_tables(PDO $pdo): void
     if (!shop_table_has_column($pdo, 'orders', 'payment_method')) {
         $pdo->exec("ALTER TABLE orders ADD COLUMN payment_method VARCHAR(50) NULL AFTER shipping_status");
     }
+    $pdo->exec("ALTER TABLE orders MODIFY payment_status VARCHAR(40) NOT NULL DEFAULT 'unpaid'");
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS order_items (
@@ -1659,6 +1773,326 @@ function shop_ensure_checkout_tables(PDO $pdo): void
             KEY idx_shipments_tracking_number (tracking_number)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+
+    shop_ensure_checkout_schema_columns($pdo);
+    shop_ensure_payment_tables($pdo);
+    shop_mark_schema_bootstrap_checked();
+}
+
+function shop_schema_bootstrap_cache_file(): string
+{
+    return dirname(__DIR__) . DIRECTORY_SEPARATOR . '.shop_schema_bootstrap.cache';
+}
+
+function shop_can_skip_schema_bootstrap(): bool
+{
+    $cacheFile = shop_schema_bootstrap_cache_file();
+    if (!is_file($cacheFile)) {
+        return false;
+    }
+
+    $lastCheckedAt = (int)@filemtime($cacheFile);
+    return $lastCheckedAt > 0 && (time() - $lastCheckedAt) < 43200;
+}
+
+function shop_mark_schema_bootstrap_checked(): void
+{
+    @touch(shop_schema_bootstrap_cache_file());
+}
+
+function shop_ensure_checkout_schema_columns(PDO $pdo): void
+{
+    static $completed = false;
+    if ($completed) {
+        return;
+    }
+    $completed = true;
+
+    $columns = [
+        'orders' => [
+            'order_number' => 'ALTER TABLE orders ADD COLUMN order_number VARCHAR(50) NULL',
+            'user_id' => 'ALTER TABLE orders ADD COLUMN user_id BIGINT UNSIGNED NULL',
+            'subtotal' => 'ALTER TABLE orders ADD COLUMN subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00',
+            'discount_amount' => 'ALTER TABLE orders ADD COLUMN discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00',
+            'tax_amount' => 'ALTER TABLE orders ADD COLUMN tax_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00',
+            'shipping_fee' => 'ALTER TABLE orders ADD COLUMN shipping_fee DECIMAL(12,2) NOT NULL DEFAULT 0.00',
+            'total_amount' => 'ALTER TABLE orders ADD COLUMN total_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00',
+            'order_status' => "ALTER TABLE orders ADD COLUMN order_status VARCHAR(40) NOT NULL DEFAULT 'pending'",
+            'payment_status' => "ALTER TABLE orders ADD COLUMN payment_status VARCHAR(40) NOT NULL DEFAULT 'unpaid'",
+            'shipping_status' => "ALTER TABLE orders ADD COLUMN shipping_status VARCHAR(40) NOT NULL DEFAULT 'not_shipped'",
+            'payment_method' => 'ALTER TABLE orders ADD COLUMN payment_method VARCHAR(50) NULL',
+            'customer_note' => 'ALTER TABLE orders ADD COLUMN customer_note TEXT NULL',
+            'placed_at' => 'ALTER TABLE orders ADD COLUMN placed_at TIMESTAMP NULL DEFAULT NULL',
+            'created_at' => 'ALTER TABLE orders ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
+            'updated_at' => 'ALTER TABLE orders ADD COLUMN updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+        ],
+        'order_items' => [
+            'order_id' => 'ALTER TABLE order_items ADD COLUMN order_id BIGINT UNSIGNED NOT NULL DEFAULT 0',
+            'product_id' => 'ALTER TABLE order_items ADD COLUMN product_id BIGINT UNSIGNED NULL',
+            'product_variant_id' => 'ALTER TABLE order_items ADD COLUMN product_variant_id BIGINT UNSIGNED NULL',
+            'product_name' => "ALTER TABLE order_items ADD COLUMN product_name VARCHAR(200) NOT NULL DEFAULT ''",
+            'variant_name' => 'ALTER TABLE order_items ADD COLUMN variant_name VARCHAR(200) NULL',
+            'sku' => 'ALTER TABLE order_items ADD COLUMN sku VARCHAR(100) NULL',
+            'quantity' => 'ALTER TABLE order_items ADD COLUMN quantity INT UNSIGNED NOT NULL DEFAULT 1',
+            'unit_price' => 'ALTER TABLE order_items ADD COLUMN unit_price DECIMAL(12,2) NOT NULL DEFAULT 0.00',
+            'total_price' => 'ALTER TABLE order_items ADD COLUMN total_price DECIMAL(12,2) NOT NULL DEFAULT 0.00',
+            'created_at' => 'ALTER TABLE order_items ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
+        ],
+        'shipments' => [
+            'order_id' => 'ALTER TABLE shipments ADD COLUMN order_id BIGINT UNSIGNED NOT NULL DEFAULT 0',
+            'courier_name' => 'ALTER TABLE shipments ADD COLUMN courier_name VARCHAR(150) NULL',
+            'tracking_number' => 'ALTER TABLE shipments ADD COLUMN tracking_number VARCHAR(150) NULL',
+            'shipping_address' => 'ALTER TABLE shipments ADD COLUMN shipping_address JSON NULL',
+            'shipping_fee' => 'ALTER TABLE shipments ADD COLUMN shipping_fee DECIMAL(12,2) NOT NULL DEFAULT 0.00',
+            'status' => "ALTER TABLE shipments ADD COLUMN status VARCHAR(40) NOT NULL DEFAULT 'preparing'",
+            'shipped_at' => 'ALTER TABLE shipments ADD COLUMN shipped_at TIMESTAMP NULL DEFAULT NULL',
+            'delivered_at' => 'ALTER TABLE shipments ADD COLUMN delivered_at TIMESTAMP NULL DEFAULT NULL',
+            'created_at' => 'ALTER TABLE shipments ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
+            'updated_at' => 'ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+        ],
+    ];
+
+    foreach ($columns as $tableName => $tableColumns) {
+        if (!shop_schema_table_exists_fresh($pdo, $tableName)) {
+            continue;
+        }
+
+        foreach ($tableColumns as $columnName => $alterSql) {
+            if (shop_schema_column_exists_fresh($pdo, $tableName, $columnName)) {
+                continue;
+            }
+
+            try {
+                $pdo->exec($alterSql);
+            } catch (Throwable) {
+                // Old local schemas can be inconsistent; the concrete query will
+                // report any remaining non-recoverable mismatch.
+            }
+        }
+    }
+}
+
+function shop_ensure_payment_tables(PDO $pdo): void
+{
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS payment_methods (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(120) NOT NULL,
+            code VARCHAR(50) NOT NULL,
+            account_name VARCHAR(150) NOT NULL,
+            account_phone VARCHAR(50) NULL,
+            account_number VARCHAR(100) NULL,
+            qr_image VARCHAR(255) NULL,
+            instructions TEXT NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            sort_order INT NOT NULL DEFAULT 0,
+            created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_payment_methods_code (code),
+            KEY idx_payment_methods_active_sort (is_active, sort_order)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS payment_slips (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            order_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NOT NULL,
+            payment_method_id BIGINT UNSIGNED NOT NULL,
+            slip_image VARCHAR(255) NOT NULL,
+            amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            sender_name VARCHAR(255) NULL,
+            sender_phone VARCHAR(50) NULL,
+            transaction_id VARCHAR(255) NULL,
+            transferred_at DATETIME NULL,
+            status VARCHAR(30) NOT NULL DEFAULT 'pending',
+            reviewed_by BIGINT UNSIGNED NULL,
+            reviewed_at DATETIME NULL,
+            admin_note TEXT NULL,
+            reject_reason TEXT NULL,
+            created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_payment_slips_order_status (order_id, status),
+            KEY idx_payment_slips_method_created (payment_method_id, created_at),
+            KEY idx_payment_slips_user (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS payments (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            order_id BIGINT UNSIGNED NOT NULL,
+            payment_method VARCHAR(50) NULL,
+            payment_provider VARCHAR(120) NULL,
+            transaction_id VARCHAR(255) NULL,
+            amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            currency VARCHAR(10) NOT NULL DEFAULT 'MMK',
+            status VARCHAR(30) NOT NULL DEFAULT 'pending',
+            paid_at DATETIME NULL,
+            created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_payments_order (order_id),
+            KEY idx_payments_status (status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    shop_ensure_payment_schema_columns($pdo);
+
+    $insert = $pdo->prepare(
+        'INSERT INTO payment_methods (name, code, account_name, account_phone, account_number, qr_image, instructions, is_active, sort_order, created_at, updated_at)
+         VALUES (:name, :code, :account_name, :account_phone, :account_number, :qr_image, :instructions, 1, :sort_order, NOW(), NOW())
+         ON DUPLICATE KEY UPDATE
+            name = VALUES(name),
+            account_name = VALUES(account_name),
+            account_phone = VALUES(account_phone),
+            account_number = VALUES(account_number),
+            qr_image = VALUES(qr_image),
+            instructions = VALUES(instructions),
+            is_active = 1,
+            sort_order = VALUES(sort_order),
+            updated_at = NOW()'
+    );
+
+    foreach (shop_manual_payment_seed_rows() as $row) {
+        $insert->execute([
+            ':name' => $row['name'],
+            ':code' => $row['code'],
+            ':account_name' => $row['account_name'],
+            ':account_phone' => $row['account_phone'],
+            ':account_number' => $row['account_number'],
+            ':qr_image' => $row['qr_image'],
+            ':instructions' => $row['instructions'],
+            ':sort_order' => $row['sort_order'],
+        ]);
+    }
+}
+
+function shop_schema_column_exists_fresh(PDO $pdo, string $tableName, string $columnName): bool
+{
+    static $columnsByTable = [];
+
+    $tableKey = strtolower(trim($tableName));
+    $columnKey = strtolower(trim($columnName));
+    if ($tableKey === '' || $columnKey === '') {
+        return false;
+    }
+
+    if (!array_key_exists($tableKey, $columnsByTable)) {
+        $columnsByTable[$tableKey] = [];
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $tableName)) {
+            return false;
+        }
+
+        try {
+            $statement = $pdo->query('SHOW COLUMNS FROM `' . $tableName . '`');
+            $rows = $statement->fetchAll();
+            if (is_array($rows)) {
+                foreach ($rows as $row) {
+                    $field = strtolower(trim((string)($row['Field'] ?? '')));
+                    if ($field !== '') {
+                        $columnsByTable[$tableKey][] = $field;
+                    }
+                }
+            }
+            $columnsByTable[$tableKey] = array_values(array_unique($columnsByTable[$tableKey]));
+        } catch (Throwable) {
+            $columnsByTable[$tableKey] = [];
+        }
+    }
+
+    return in_array($columnKey, $columnsByTable[$tableKey], true);
+}
+
+function shop_schema_table_exists_fresh(PDO $pdo, string $tableName): bool
+{
+    if (!preg_match('/^[a-zA-Z0-9_]+$/', $tableName)) {
+        return false;
+    }
+
+    try {
+        $statement = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($tableName));
+        return $statement->fetchColumn() !== false;
+    } catch (Throwable) {
+        return false;
+    }
+}
+
+function shop_ensure_payment_schema_columns(PDO $pdo): void
+{
+    static $completed = false;
+    if ($completed) {
+        return;
+    }
+    $completed = true;
+
+    $columns = [
+        'payment_methods' => [
+            'created_at' => 'ALTER TABLE payment_methods ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
+            'updated_at' => 'ALTER TABLE payment_methods ADD COLUMN updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+        ],
+        'payment_slips' => [
+            'sender_name' => 'ALTER TABLE payment_slips ADD COLUMN sender_name VARCHAR(255) NULL',
+            'sender_phone' => 'ALTER TABLE payment_slips ADD COLUMN sender_phone VARCHAR(50) NULL',
+            'transaction_id' => 'ALTER TABLE payment_slips ADD COLUMN transaction_id VARCHAR(255) NULL',
+            'transferred_at' => 'ALTER TABLE payment_slips ADD COLUMN transferred_at DATETIME NULL',
+            'status' => "ALTER TABLE payment_slips ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'pending'",
+            'reviewed_by' => 'ALTER TABLE payment_slips ADD COLUMN reviewed_by BIGINT UNSIGNED NULL',
+            'reviewed_at' => 'ALTER TABLE payment_slips ADD COLUMN reviewed_at DATETIME NULL',
+            'admin_note' => 'ALTER TABLE payment_slips ADD COLUMN admin_note TEXT NULL',
+            'reject_reason' => 'ALTER TABLE payment_slips ADD COLUMN reject_reason TEXT NULL',
+            'created_at' => 'ALTER TABLE payment_slips ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
+            'updated_at' => 'ALTER TABLE payment_slips ADD COLUMN updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+        ],
+        'payments' => [
+            'payment_method' => 'ALTER TABLE payments ADD COLUMN payment_method VARCHAR(50) NULL',
+            'payment_provider' => 'ALTER TABLE payments ADD COLUMN payment_provider VARCHAR(120) NULL',
+            'transaction_id' => 'ALTER TABLE payments ADD COLUMN transaction_id VARCHAR(255) NULL',
+            'amount' => 'ALTER TABLE payments ADD COLUMN amount DECIMAL(12,2) NOT NULL DEFAULT 0.00',
+            'currency' => "ALTER TABLE payments ADD COLUMN currency VARCHAR(10) NOT NULL DEFAULT 'MMK'",
+            'status' => "ALTER TABLE payments ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'pending'",
+            'paid_at' => 'ALTER TABLE payments ADD COLUMN paid_at DATETIME NULL',
+            'created_at' => 'ALTER TABLE payments ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
+            'updated_at' => 'ALTER TABLE payments ADD COLUMN updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+        ],
+    ];
+
+    foreach ($columns as $tableName => $tableColumns) {
+        if (!shop_schema_table_exists_fresh($pdo, $tableName)) {
+            continue;
+        }
+
+        foreach ($tableColumns as $columnName => $alterSql) {
+            if (shop_schema_column_exists_fresh($pdo, $tableName, $columnName)) {
+                continue;
+            }
+
+            try {
+                $pdo->exec($alterSql);
+            } catch (Throwable) {
+                // Existing local databases may have partial manual edits; keep checkout usable
+                // and let the next concrete query surface any non-recoverable schema issue.
+            }
+        }
+    }
+}
+
+function shop_payment_method_records(PDO $pdo): array
+{
+    shop_ensure_payment_tables($pdo);
+
+    $rows = $pdo->query(
+        'SELECT id, name, code, account_name, account_phone, account_number, qr_image, instructions
+         FROM payment_methods
+         WHERE is_active = 1
+         ORDER BY sort_order ASC, name ASC'
+    )->fetchAll();
+
+    return is_array($rows) ? $rows : [];
+}
+
+function shop_is_manual_payment_method(string $paymentMethod): bool
+{
+    return $paymentMethod !== 'cod';
 }
 
 function shop_checkout_validate(array $input): array
@@ -1803,7 +2237,7 @@ function shop_resolve_checkout_user_id(PDO $pdo, array $form): ?int
     }
 }
 
-function shop_place_order(PDO $pdo, array $formInput): array
+function shop_place_order(PDO $pdo, array $formInput, ?array $slipFile = null): array
 {
     if (!shop_user_is_logged_in()) {
         throw new RuntimeException('Please log in before checkout.');
@@ -1825,13 +2259,32 @@ function shop_place_order(PDO $pdo, array $formInput): array
     $total = round($subtotal - $discountAmount + $taxAmount + $shippingFee, 2);
 
     $paymentMethod = $form['payment_method'];
-    $paymentStatus = $paymentMethod === 'prepaid' ? 'paid' : 'unpaid';
+    $isManualPayment = shop_is_manual_payment_method($paymentMethod);
+    $paymentStatus = $isManualPayment ? 'payment_pending_review' : 'unpaid';
     $shippingStatus = $shippingFee > 0 ? 'preparing' : 'not_shipped';
     $shipmentStatus = (string)($shipping['shipment_status'] ?? 'preparing');
     $shipmentStatus = in_array($shipmentStatus, ['preparing', 'shipped', 'in_transit', 'delivered', 'returned', 'cancelled'], true)
         ? $shipmentStatus
         : 'preparing';
-    $orderStatus = $paymentMethod === 'prepaid' ? 'confirmed' : 'pending';
+    $orderStatus = $isManualPayment ? 'pending' : 'confirmed';
+    $manualPaymentMethodRecord = null;
+    $slipUpload = null;
+    if ($isManualPayment) {
+        $transactionId = trim((string)($form['payment_transaction_id'] ?? ''));
+        if ($transactionId === '') {
+            throw new InvalidArgumentException('Transaction number is required for prepaid payment.');
+        }
+
+        $methodStatement = $pdo->prepare('SELECT id, name, code FROM payment_methods WHERE code = :code AND is_active = 1 LIMIT 1');
+        $methodStatement->execute([':code' => $paymentMethod]);
+        $methodRow = $methodStatement->fetch();
+        if (!is_array($methodRow)) {
+            throw new InvalidArgumentException('Selected payment method is not available.');
+        }
+
+        $manualPaymentMethodRecord = $methodRow;
+        $slipUpload = shop_prepare_checkout_slip_upload($slipFile);
+    }
 
     $userId = shop_resolve_checkout_user_id($pdo, $form);
     $orderNumber = shop_generate_order_number($pdo);
@@ -1850,6 +2303,7 @@ function shop_place_order(PDO $pdo, array $formInput): array
     ];
 
     $pdo->beginTransaction();
+    $uploadedFilesystemPath = null;
     try {
         $orderStatement = $pdo->prepare(
             'INSERT INTO orders (
@@ -1879,6 +2333,29 @@ function shop_place_order(PDO $pdo, array $formInput): array
         $orderId = (int)$pdo->lastInsertId();
         if ($orderId <= 0) {
             throw new RuntimeException('Failed to create order.');
+        }
+
+        if ($isManualPayment && is_array($manualPaymentMethodRecord) && is_array($slipUpload)) {
+            $storedSlip = shop_store_checkout_slip_file($orderId, $slipUpload);
+            $uploadedSlipPath = $storedSlip['relative_path'];
+            $uploadedFilesystemPath = $storedSlip['filesystem_path'];
+
+            $slipStatement = $pdo->prepare(
+                'INSERT INTO payment_slips (
+                    order_id, user_id, payment_method_id, slip_image, amount, transaction_id, status, created_at, updated_at
+                ) VALUES (
+                    :order_id, :user_id, :payment_method_id, :slip_image, :amount, :transaction_id, :status, NOW(), NOW()
+                )'
+            );
+            $slipStatement->execute([
+                ':order_id' => $orderId,
+                ':user_id' => $userId,
+                ':payment_method_id' => (int)$manualPaymentMethodRecord['id'],
+                ':slip_image' => $uploadedSlipPath,
+                ':amount' => $total,
+                ':transaction_id' => trim((string)$form['payment_transaction_id']),
+                ':status' => 'pending',
+            ]);
         }
 
         $itemStatement = $pdo->prepare(
@@ -1949,11 +2426,386 @@ function shop_place_order(PDO $pdo, array $formInput): array
             'order_number' => $orderNumber,
             'total_amount' => $total,
             'payment_method' => $paymentMethod,
+            'payment_status' => $paymentStatus,
+            'order_status' => $orderStatus,
         ];
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
+        if (is_string($uploadedFilesystemPath) && $uploadedFilesystemPath !== '') {
+            @unlink($uploadedFilesystemPath);
+        }
         throw $exception;
     }
+}
+
+function shop_fetch_payment_order(PDO $pdo, int $orderId): array
+{
+    shop_ensure_payment_tables($pdo);
+    $currentUser = shop_current_user();
+    if (!is_array($currentUser)) {
+        throw new RuntimeException('Please log in to view this order.');
+    }
+
+    $userId = max(0, (int)($currentUser['id'] ?? 0));
+    if ($userId <= 0) {
+        throw new RuntimeException('Your account session is not ready. Please log in again.');
+    }
+
+    $statement = $pdo->prepare(
+        'SELECT o.*, COALESCE(u.name, "") AS customer_name, COALESCE(u.email, "") AS customer_email
+         FROM orders o
+         LEFT JOIN users u ON u.id = o.user_id
+         WHERE o.id = :id AND o.user_id = :user_id
+         LIMIT 1'
+    );
+    $statement->execute([
+        ':id' => $orderId,
+        ':user_id' => $userId,
+    ]);
+    $order = $statement->fetch();
+
+    if (!is_array($order)) {
+        throw new RuntimeException('Order was not found for your account.');
+    }
+
+    return $order;
+}
+
+function shop_prepare_checkout_slip_upload(?array $file): array
+{
+    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        throw new InvalidArgumentException('Payment slip image is required for prepaid payment.');
+    }
+
+    $tmpName = (string)($file['tmp_name'] ?? '');
+    if ($tmpName === '' || !is_uploaded_file($tmpName)) {
+        throw new InvalidArgumentException('Invalid uploaded payment slip image.');
+    }
+
+    if ((int)($file['size'] ?? 0) > 4096 * 1024) {
+        throw new InvalidArgumentException('Payment slip image must be 4MB or smaller.');
+    }
+
+    $imageInfo = @getimagesize($tmpName);
+    $mime = is_array($imageInfo) ? (string)($imageInfo['mime'] ?? '') : '';
+    $extensions = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+    ];
+
+    if (!isset($extensions[$mime])) {
+        throw new InvalidArgumentException('Payment slip image must be JPG, PNG, or WebP.');
+    }
+
+    return [
+        'tmp_name' => $tmpName,
+        'extension' => $extensions[$mime],
+    ];
+}
+
+function shop_store_checkout_slip_file(int $orderId, array $upload): array
+{
+    $uploadDir = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'payment-slips';
+    if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
+        throw new RuntimeException('Could not create payment slip upload folder.');
+    }
+
+    $filename = 'slip-' . $orderId . '-' . bin2hex(random_bytes(8)) . '.' . (string)$upload['extension'];
+    $destination = $uploadDir . DIRECTORY_SEPARATOR . $filename;
+    if (!move_uploaded_file((string)$upload['tmp_name'], $destination)) {
+        throw new RuntimeException('Could not save uploaded payment slip.');
+    }
+
+    return [
+        'relative_path' => '../uploads/payment-slips/' . $filename,
+        'filesystem_path' => $destination,
+    ];
+}
+
+function shop_fetch_order_payment_slips(PDO $pdo, int $orderId): array
+{
+    shop_ensure_payment_tables($pdo);
+
+    $statement = $pdo->prepare(
+        'SELECT ps.*, pm.name AS payment_method_name, pm.code AS payment_method_code
+         FROM payment_slips ps
+         INNER JOIN payment_methods pm ON pm.id = ps.payment_method_id
+         WHERE ps.order_id = :order_id
+         ORDER BY ps.created_at DESC, ps.id DESC'
+    );
+    $statement->execute([':order_id' => $orderId]);
+    $rows = $statement->fetchAll();
+
+    return is_array($rows) ? $rows : [];
+}
+
+function shop_store_payment_slip(PDO $pdo, array $order, array $input, array $file): void
+{
+    shop_ensure_payment_tables($pdo);
+
+    if ((string)($order['payment_status'] ?? '') === 'paid') {
+        throw new RuntimeException('This order has already been paid.');
+    }
+
+    $pending = $pdo->prepare('SELECT COUNT(*) FROM payment_slips WHERE order_id = :order_id AND status = :status');
+    $pending->execute([
+        ':order_id' => (int)$order['id'],
+        ':status' => 'pending',
+    ]);
+    if ((int)$pending->fetchColumn() > 0) {
+        throw new RuntimeException('A payment slip is already waiting for admin review.');
+    }
+
+    $paymentMethodId = max(0, (int)($input['payment_method_id'] ?? 0));
+    $methodStatement = $pdo->prepare('SELECT id FROM payment_methods WHERE id = :id AND is_active = 1 LIMIT 1');
+    $methodStatement->execute([':id' => $paymentMethodId]);
+    if (!is_array($methodStatement->fetch())) {
+        throw new InvalidArgumentException('Please select a valid payment method.');
+    }
+
+    $amount = round((float)($input['amount'] ?? 0), 2);
+    if ($amount < 1) {
+        throw new InvalidArgumentException('Amount is required.');
+    }
+
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        throw new InvalidArgumentException('Please upload a payment slip image.');
+    }
+
+    $tmpName = (string)($file['tmp_name'] ?? '');
+    if ($tmpName === '' || !is_uploaded_file($tmpName)) {
+        throw new InvalidArgumentException('Invalid uploaded slip image.');
+    }
+
+    if ((int)($file['size'] ?? 0) > 4096 * 1024) {
+        throw new InvalidArgumentException('Slip image must be 4MB or smaller.');
+    }
+
+    $imageInfo = @getimagesize($tmpName);
+    $mime = is_array($imageInfo) ? (string)($imageInfo['mime'] ?? '') : '';
+    $extensions = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+    ];
+    if (!isset($extensions[$mime])) {
+        throw new InvalidArgumentException('Slip image must be JPG, PNG, or WebP.');
+    }
+
+    $uploadDir = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'payment-slips';
+    if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
+        throw new RuntimeException('Could not create payment slip upload folder.');
+    }
+
+    $filename = 'slip-' . (int)$order['id'] . '-' . bin2hex(random_bytes(8)) . '.' . $extensions[$mime];
+    $destination = $uploadDir . DIRECTORY_SEPARATOR . $filename;
+    if (!move_uploaded_file($tmpName, $destination)) {
+        throw new RuntimeException('Could not save uploaded payment slip.');
+    }
+
+    $relativePath = '../uploads/payment-slips/' . $filename;
+    $transferredAt = trim((string)($input['transferred_at'] ?? ''));
+    $transferredAtValue = $transferredAt !== '' ? date('Y-m-d H:i:s', strtotime($transferredAt)) : null;
+
+    $pdo->beginTransaction();
+    $uploadedSlipPath = null;
+    $uploadedFilesystemPath = null;
+    try {
+        $insert = $pdo->prepare(
+            'INSERT INTO payment_slips (
+                order_id, user_id, payment_method_id, slip_image, amount, sender_name, sender_phone,
+                transaction_id, transferred_at, status, created_at, updated_at
+            ) VALUES (
+                :order_id, :user_id, :payment_method_id, :slip_image, :amount, :sender_name, :sender_phone,
+                :transaction_id, :transferred_at, :status, NOW(), NOW()
+            )'
+        );
+        $insert->execute([
+            ':order_id' => (int)$order['id'],
+            ':user_id' => (int)$order['user_id'],
+            ':payment_method_id' => $paymentMethodId,
+            ':slip_image' => $relativePath,
+            ':amount' => $amount,
+            ':sender_name' => shop_null_if_empty((string)($input['sender_name'] ?? '')),
+            ':sender_phone' => shop_null_if_empty((string)($input['sender_phone'] ?? '')),
+            ':transaction_id' => shop_null_if_empty((string)($input['transaction_id'] ?? '')),
+            ':transferred_at' => $transferredAtValue,
+            ':status' => 'pending',
+        ]);
+
+        $update = $pdo->prepare(
+            'UPDATE orders
+             SET payment_status = :payment_status, order_status = :order_status, updated_at = NOW()
+             WHERE id = :id'
+        );
+        $update->execute([
+            ':payment_status' => 'payment_pending_review',
+            ':order_status' => 'pending',
+            ':id' => (int)$order['id'],
+        ]);
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        @unlink($destination);
+        throw $exception;
+    }
+}
+
+function shop_current_user_database_id(PDO $pdo): int
+{
+    $currentUser = shop_current_user();
+    if (!is_array($currentUser)) {
+        return 0;
+    }
+
+    $sessionUserId = max(0, (int)($currentUser['id'] ?? 0));
+    if ($sessionUserId > 0) {
+        return $sessionUserId;
+    }
+
+    if (!shop_table_exists($pdo, 'users')) {
+        return 0;
+    }
+
+    $firebaseUid = trim((string)($currentUser['firebase_uid'] ?? ''));
+    if ($firebaseUid !== '') {
+        $statement = $pdo->prepare('SELECT id FROM users WHERE firebase_uid = :firebase_uid ORDER BY id ASC LIMIT 1');
+        $statement->execute([':firebase_uid' => $firebaseUid]);
+        $row = $statement->fetch();
+        if (is_array($row) && (int)($row['id'] ?? 0) > 0) {
+            return (int)$row['id'];
+        }
+    }
+
+    $email = strtolower(trim((string)($currentUser['email'] ?? '')));
+    if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $statement = $pdo->prepare('SELECT id FROM users WHERE email = :email ORDER BY id ASC LIMIT 1');
+        $statement->execute([':email' => $email]);
+        $row = $statement->fetch();
+        if (is_array($row) && (int)($row['id'] ?? 0) > 0) {
+            return (int)$row['id'];
+        }
+    }
+
+    return 0;
+}
+
+function shop_delivery_steps(): array
+{
+    return [
+        'placed' => [
+            'label' => 'Order Placed',
+            'description' => 'We received your order.',
+        ],
+        'confirmed' => [
+            'label' => 'Confirmed',
+            'description' => 'Your order is confirmed.',
+        ],
+        'preparing' => [
+            'label' => 'Preparing',
+            'description' => 'Your items are being packed.',
+        ],
+        'shipped' => [
+            'label' => 'Shipped',
+            'description' => 'Your order has left our shop.',
+        ],
+        'in_transit' => [
+            'label' => 'On The Way',
+            'description' => 'Delivery is moving to your address.',
+        ],
+        'delivered' => [
+            'label' => 'Delivered',
+            'description' => 'Your order has been delivered.',
+        ],
+    ];
+}
+
+function shop_delivery_step_index(array $order): int
+{
+    $orderStatus = (string)($order['order_status'] ?? '');
+    $shippingStatus = (string)($order['shipping_status'] ?? '');
+
+    if ($orderStatus === 'cancelled' || $shippingStatus === 'returned') {
+        return 0;
+    }
+
+    if ($shippingStatus === 'delivered' || $orderStatus === 'delivered') {
+        return 5;
+    }
+    if ($shippingStatus === 'in_transit') {
+        return 4;
+    }
+    if ($shippingStatus === 'shipped' || $orderStatus === 'shipped') {
+        return 3;
+    }
+    if ($shippingStatus === 'preparing' || $orderStatus === 'processing') {
+        return 2;
+    }
+    if (in_array($orderStatus, ['confirmed', 'processing'], true)) {
+        return 1;
+    }
+
+    return 0;
+}
+
+function shop_fetch_customer_orders(PDO $pdo): array
+{
+    shop_ensure_checkout_tables($pdo);
+
+    $userId = shop_current_user_database_id($pdo);
+    if ($userId <= 0 || !shop_table_exists($pdo, 'orders')) {
+        return [];
+    }
+
+    $shipmentJoin = shop_table_exists($pdo, 'shipments')
+        ? 'LEFT JOIN shipments s ON s.order_id = o.id'
+        : '';
+    $shipmentColumns = shop_table_exists($pdo, 'shipments')
+        ? 's.courier_name, s.tracking_number, s.status AS shipment_status, s.shipped_at, s.delivered_at,'
+        : 'NULL AS courier_name, NULL AS tracking_number, NULL AS shipment_status, NULL AS shipped_at, NULL AS delivered_at,';
+
+    $statement = $pdo->prepare(
+        "SELECT
+            o.id,
+            o.order_number,
+            o.total_amount,
+            o.order_status,
+            o.payment_status,
+            o.shipping_status,
+            o.payment_method,
+            COALESCE(o.placed_at, o.created_at) AS order_datetime,
+            {$shipmentColumns}
+            (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) AS item_count
+         FROM orders o
+         {$shipmentJoin}
+         WHERE o.user_id = :user_id
+         ORDER BY COALESCE(o.placed_at, o.created_at) DESC, o.id DESC
+         LIMIT 50"
+    );
+    $statement->execute([':user_id' => $userId]);
+    $rows = $statement->fetchAll();
+
+    return is_array($rows) ? $rows : [];
+}
+
+function shop_fetch_customer_order(PDO $pdo, int $orderId): ?array
+{
+    if ($orderId <= 0) {
+        return null;
+    }
+
+    $orders = shop_fetch_customer_orders($pdo);
+    foreach ($orders as $order) {
+        if ((int)($order['id'] ?? 0) === $orderId) {
+            return $order;
+        }
+    }
+
+    return null;
 }

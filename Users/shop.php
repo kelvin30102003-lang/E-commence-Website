@@ -617,69 +617,11 @@ $isAjaxRequest = shop_is_ajax_request();
     window.shopPrefetchedUrls = prefetchedUrls;
 
     const prefetchShopState = (urlString) => {
-        const destination = new URL(urlString, window.location.href);
-        if (!isShopUrl(destination)) {
-            return;
-        }
-
-        const normalized = destination.toString();
-        if (prefetchedUrls.has(normalized)) {
-            return;
-        }
-        prefetchedUrls.add(normalized);
-
-        void fetch(toAjaxUrl(normalized), {
-            method: 'GET',
-            credentials: 'same-origin',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-        }).catch(() => {
-        });
+        return;
     };
 
     const scheduleNeighborPrefetch = () => {
-        if (!root) {
-            return;
-        }
-        const pagination = root.querySelector('nav.mt-xl');
-        if (!pagination) {
-            return;
-        }
-
-        const links = Array.from(pagination.querySelectorAll('a[href]'));
-        const nextLink = links.find((link) => (
-            link.querySelector('[data-icon="chevron_right"]')
-            && !link.classList.contains('pointer-events-none')
-        ));
-        if (!(nextLink instanceof HTMLAnchorElement)) {
-            return;
-        }
-
-        const runner = () => {
-            prefetchShopState(nextLink.href);
-
-            try {
-                const nextUrl = new URL(nextLink.href, window.location.href);
-                const pageValue = parseInt(nextUrl.searchParams.get('page') || '', 10);
-                if (!Number.isNaN(pageValue) && pageValue > 0) {
-                    nextUrl.searchParams.set('page', String(pageValue + 1));
-                    prefetchShopState(nextUrl.toString());
-                }
-            } catch (error) {
-            }
-        };
-
-        if (document.visibilityState === 'visible') {
-            window.setTimeout(runner, 80);
-            return;
-        }
-
-        if (typeof window.requestIdleCallback === 'function') {
-            window.requestIdleCallback(runner, { timeout: 1000 });
-            return;
-        }
-        window.setTimeout(runner, 260);
+        return;
     };
 
     const setLoadingState = (isLoading) => {

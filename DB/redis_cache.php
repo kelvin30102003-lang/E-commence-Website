@@ -20,8 +20,8 @@ function railway_redis_config(): array
             'database' => max(0, (int)($config['database'] ?? 0)),
             'username' => trim((string)($config['username'] ?? '')),
             'password' => (string)($config['password'] ?? ''),
-            'timeout' => max(0.1, (float)($config['timeout'] ?? 1.5)),
-            'read_timeout' => max(0.1, (float)($config['read_timeout'] ?? 1.5)),
+            'timeout' => max(0.1, (float)($config['timeout'] ?? 0.2)),
+            'read_timeout' => max(0.1, (float)($config['read_timeout'] ?? 0.2)),
         ];
     }
 
@@ -62,8 +62,8 @@ function railway_redis_config(): array
         'database' => max(0, $database),
         'username' => $username,
         'password' => $password,
-        'timeout' => max(0.1, (float)(getenv('REDIS_CONNECT_TIMEOUT') ?: 1.5)),
-        'read_timeout' => max(0.1, (float)(getenv('REDIS_READ_TIMEOUT') ?: 1.5)),
+        'timeout' => max(0.1, (float)(getenv('REDIS_CONNECT_TIMEOUT') ?: 0.2)),
+        'read_timeout' => max(0.1, (float)(getenv('REDIS_READ_TIMEOUT') ?: 0.2)),
     ];
 }
 

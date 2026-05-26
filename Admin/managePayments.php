@@ -13,7 +13,7 @@ $pdo = admin_db();
 admin_ensure_tables($pdo);
 $csrfToken = admin_bootstrap_csrf_token();
 
-$paymentStatusOptions = ['unpaid', 'paid', 'failed', 'refunded', 'partial_refund'];
+$paymentStatusOptions = ['unpaid', 'payment_pending_review', 'paid', 'failed', 'rejected', 'refunded', 'partial_refund'];
 
 $queryFilters = [
     'q' => trim((string)($_GET['q'] ?? '')),

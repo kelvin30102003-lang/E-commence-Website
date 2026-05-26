@@ -15,7 +15,7 @@ admin_ensure_tables($pdo);
 $csrfToken = admin_bootstrap_csrf_token();
 
 $orderStatusOptions = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded'];
-$paymentStatusOptions = ['unpaid', 'paid', 'failed', 'refunded', 'partial_refund'];
+$paymentStatusOptions = ['unpaid', 'payment_pending_review', 'paid', 'failed', 'rejected', 'refunded', 'partial_refund'];
 $shippingStatusOptions = ['not_shipped', 'preparing', 'shipped', 'in_transit', 'delivered', 'returned'];
 
 $queryFilters = [
@@ -606,7 +606,7 @@ function handleOrderPostActions(
                 if (!in_array($status, $shippingStatusOptions, true)) {
                     throw new InvalidArgumentException('Invalid shipping status.');
                 }
-                updateOrderField($pdo, $orderId, 'shipping_status', $status);
+                updateOrderShippingStatus($pdo, $orderId, $status);
                 setOrderFlash('success', 'Shipping status updated.');
                 admin_log_activity($pdo, (int)$admin['id'], 'order.shipping', "Order #{$orderId} shipping => {$status}");
                 redirectManageOrders((string)($_POST['return_query'] ?? ''));
@@ -674,6 +674,45 @@ function updateOrderField(PDO $pdo, int $orderId, string $field, string $value, 
         if ($exists === null) {
             throw new RuntimeException('Order not found.');
         }
+    }
+}
+
+function updateOrderShippingStatus(PDO $pdo, int $orderId, string $status): void
+{
+    $pdo->beginTransaction();
+    try {
+        updateOrderField($pdo, $orderId, 'shipping_status', $status, false);
+
+        if (admin_table_exists($pdo, 'shipments')) {
+            $shipmentStatus = in_array($status, ['preparing', 'shipped', 'in_transit', 'delivered', 'returned'], true)
+                ? $status
+                : 'preparing';
+
+            $sql = 'UPDATE shipments SET status = :status, updated_at = NOW()';
+            if (in_array($status, ['shipped', 'in_transit', 'delivered'], true)) {
+                $sql .= ', shipped_at = COALESCE(shipped_at, NOW())';
+            }
+            if ($status === 'delivered') {
+                $sql .= ', delivered_at = COALESCE(delivered_at, NOW())';
+            }
+            $sql .= ' WHERE order_id = :order_id';
+
+            $statement = $pdo->prepare($sql);
+            $statement->execute([
+                ':status' => $shipmentStatus,
+                ':order_id' => $orderId,
+            ]);
+        }
+
+        $touch = $pdo->prepare('UPDATE orders SET updated_at = NOW() WHERE id = :id');
+        $touch->execute([':id' => $orderId]);
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
     }
 }
 

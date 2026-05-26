@@ -6,7 +6,8 @@ $activePage = 'shop';
 
 require_once __DIR__ . '/includes/shop_backend.php';
 shop_start_session();
-shop_require_checkout_login();
+$isDrawer = isset($_GET['drawer']) && (string)$_GET['drawer'] === '1';
+shop_require_checkout_login($isDrawer ? '../Users/Home.php?open_cart=checkout' : '../Users/checkout.php');
 
 $dbError = null;
 $checkoutError = null;
@@ -24,6 +25,7 @@ if (is_array($currentUser)) {
 }
 $paymentMethods = shop_payment_methods();
 $shippingMethods = shop_shipping_methods();
+$paymentMethodRecords = [];
 
 $cart = [
     'items' => [],
@@ -34,6 +36,8 @@ $cart = [
 
 try {
     $pdo = shop_db();
+    shop_ensure_checkout_tables($pdo);
+    $paymentMethodRecords = shop_payment_method_records($pdo);
     $cart = shop_cart_details($pdo);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -44,7 +48,7 @@ try {
         }
 
         try {
-            $successOrder = shop_place_order($pdo, $form);
+            $successOrder = shop_place_order($pdo, $form, $_FILES['payment_slip'] ?? null);
             $form = shop_checkout_default_form();
             $cart = shop_cart_details($pdo);
         } catch (Throwable $exception) {
@@ -181,7 +185,7 @@ $estimatedTotal = round((float)$cart['subtotal'] + $shippingFeePreview, 2);
 </head>
 <body class="bg-background text-on-surface font-body-md overflow-x-hidden">
 
-<main class="min-h-screen pb-xl pt-xl px-4 md:px-margin-desktop max-w-[1280px] mx-auto" id="app-main">
+<main class="<?= $isDrawer ? 'min-h-screen px-6 py-8' : 'min-h-screen pb-xl pt-xl px-4 md:px-margin-desktop max-w-[1280px] mx-auto' ?>" id="app-main">
     <?php if ($dbError !== null): ?>
         <section class="mb-lg rounded-xl border border-red-200 bg-error-container px-md py-sm text-sm text-on-error-container">
             DB connection error: <?= shop_h($dbError) ?>
@@ -195,7 +199,14 @@ $estimatedTotal = round((float)$cart['subtotal'] + $shippingFeePreview, 2);
                 Order placed successfully
             </div>
             <h1 class="text-headline-lg font-headline-lg text-primary mb-sm">Thank you for your order!</h1>
-            <p class="text-on-surface-variant mb-lg">Your order number is <span class="font-semibold text-on-surface">#<?= shop_h((string)$successOrder['order_number']) ?></span>.</p>
+            <p class="text-on-surface-variant mb-lg">
+                Your order number is <span class="font-semibold text-on-surface">#<?= shop_h((string)$successOrder['order_number']) ?></span>.
+                <?php if ((string)$successOrder['payment_status'] === 'payment_pending_review'): ?>
+                    Payment slip uploaded. Please wait for admin review.
+                <?php else: ?>
+                    Cash on delivery order confirmed.
+                <?php endif; ?>
+            </p>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-sm mb-lg">
                 <div class="rounded-xl bg-surface-container-low p-md">
                     <p class="text-xs text-on-surface-variant">Order ID</p>
@@ -211,8 +222,9 @@ $estimatedTotal = round((float)$cart['subtotal'] + $shippingFeePreview, 2);
                 </div>
             </div>
             <div class="flex flex-wrap gap-sm">
+                <a class="px-lg py-sm rounded-full bg-primary text-on-primary font-semibold" href="track.php?order_id=<?= (int)$successOrder['order_id'] ?>" target="<?= $isDrawer ? '_top' : '_self' ?>">Track Delivery</a>
                 <a class="px-lg py-sm rounded-full bg-primary text-on-primary font-semibold" href="shop.php">Continue Shopping</a>
-                <a class="px-lg py-sm rounded-full border border-outline-variant text-on-surface" href="cart.php">Back to Cart</a>
+                <a class="px-lg py-sm rounded-full border border-outline-variant text-on-surface" href="cart.php<?= $isDrawer ? '?drawer=1' : '' ?>">Back to Cart</a>
             </div>
         </section>
     <?php elseif (count($cart['items']) === 0): ?>
@@ -233,8 +245,8 @@ $estimatedTotal = round((float)$cart['subtotal'] + $shippingFeePreview, 2);
             </section>
         <?php endif; ?>
 
-        <section class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
-            <form class="lg:col-span-8 bg-surface-container-lowest rounded-2xl p-lg soft-shadow border border-outline-variant/20 space-y-md" method="post">
+        <section class="<?= $isDrawer ? 'grid grid-cols-1 gap-lg' : 'grid grid-cols-1 lg:grid-cols-12 gap-lg' ?>">
+            <form class="<?= $isDrawer ? '' : 'lg:col-span-8 ' ?>bg-surface-container-lowest rounded-2xl p-lg soft-shadow border border-outline-variant/20 space-y-md" method="post" enctype="multipart/form-data" data-checkout-form>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-md">
                     <div>
                         <label class="block text-sm font-semibold mb-xs" for="full_name">Full Name</label>
@@ -282,14 +294,62 @@ $estimatedTotal = round((float)$cart['subtotal'] + $shippingFeePreview, 2);
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-md">
-                    <div>
+                    <div class="md:col-span-2">
                         <label class="block text-sm font-semibold mb-xs" for="payment_method">Payment</label>
-                        <select class="w-full rounded-xl border-outline-variant" id="payment_method" name="payment_method">
+                        <select class="w-full rounded-xl border-outline-variant" id="payment_method" name="payment_method" data-payment-method>
                             <?php foreach ($paymentMethods as $methodKey => $methodLabel): ?>
                                 <option value="<?= shop_h((string)$methodKey) ?>" <?= $form['payment_method'] === (string)$methodKey ? 'selected' : '' ?>><?= shop_h((string)$methodLabel) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
+
+                    <div class="md:col-span-2 space-y-sm" data-manual-payment-panel>
+                        <?php foreach ($paymentMethodRecords as $method): ?>
+                            <?php
+                                $code = (string)$method['code'];
+                                $qrLocalPath = shop_local_asset_path((string)$method['qr_image']);
+                            ?>
+                            <section class="rounded-xl border border-outline-variant/40 bg-surface-container-low p-md" data-payment-detail="<?= shop_h($code) ?>" hidden>
+                                <div class="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-md">
+                                    <div class="rounded-xl bg-white border border-outline-variant/30 p-sm">
+                                        <?php if ($qrLocalPath !== ''): ?>
+                                            <img class="aspect-square w-full object-contain rounded-lg" src="<?= shop_h((string)$method['qr_image']) ?>" alt="<?= shop_h((string)$method['name']) ?> QR"/>
+                                        <?php else: ?>
+                                            <div class="aspect-square rounded-lg border border-dashed border-outline-variant flex items-center justify-center text-center text-xs text-on-surface-variant px-sm">
+                                                Add QR image:<br><?= shop_h((string)$method['qr_image']) ?>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="text-sm space-y-xs">
+                                        <p class="font-bold text-primary"><?= shop_h((string)$method['name']) ?></p>
+                                        <p><span class="font-semibold">Account name:</span> <?= shop_h((string)$method['account_name']) ?></p>
+                                        <?php if ((string)$method['account_phone'] !== ''): ?>
+                                            <p><span class="font-semibold">Phone:</span> <?= shop_h((string)$method['account_phone']) ?></p>
+                                        <?php endif; ?>
+                                        <?php if ((string)$method['account_number'] !== ''): ?>
+                                            <p><span class="font-semibold">Account number:</span> <?= shop_h((string)$method['account_number']) ?></p>
+                                        <?php endif; ?>
+                                        <?php if ((string)$method['instructions'] !== ''): ?>
+                                            <p class="rounded-lg bg-white p-sm text-on-surface-variant"><?= shop_h((string)$method['instructions']) ?></p>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </section>
+                        <?php endforeach; ?>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-md">
+                            <div>
+                                <label class="block text-sm font-semibold mb-xs" for="payment_transaction_id">Transaction No.</label>
+                                <input class="w-full rounded-xl border-outline-variant" id="payment_transaction_id" name="payment_transaction_id" type="text" value="<?= shop_h($form['payment_transaction_id']) ?>" data-manual-required/>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold mb-xs" for="payment_slip">Payment Slip</label>
+                                <input class="w-full rounded-xl border border-outline-variant p-2" id="payment_slip" name="payment_slip" type="file" accept="image/jpeg,image/png,image/webp" data-manual-required/>
+                                <p class="mt-1 text-xs text-on-surface-variant">JPG, PNG, WebP. Max 4MB.</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <div>
                         <label class="block text-sm font-semibold mb-xs" for="shipping_method">Shipment</label>
                         <select class="w-full rounded-xl border-outline-variant" id="shipping_method" name="shipping_method">
@@ -314,11 +374,11 @@ $estimatedTotal = round((float)$cart['subtotal'] + $shippingFeePreview, 2);
 
                 <div class="pt-sm flex flex-wrap gap-sm">
                     <button class="px-xl py-md rounded-full bg-primary text-on-primary font-semibold hover:opacity-90" type="submit">Place Order</button>
-                    <a class="px-xl py-md rounded-full border border-outline-variant text-on-surface" href="cart.php">Back to Cart</a>
+                    <a class="px-xl py-md rounded-full border border-outline-variant text-on-surface" href="cart.php<?= $isDrawer ? '?drawer=1' : '' ?>">Back to Cart</a>
                 </div>
             </form>
 
-            <aside class="lg:col-span-4">
+            <aside class="<?= $isDrawer ? '' : 'lg:col-span-4' ?>">
                 <div class="bg-surface-container-lowest rounded-2xl p-lg soft-shadow border border-outline-variant/20 sticky top-24">
                     <h2 class="text-headline-md font-headline-md text-primary mb-md">Order Summary</h2>
                     <div class="space-y-sm max-h-80 overflow-auto pr-1">
@@ -353,5 +413,44 @@ $estimatedTotal = round((float)$cart['subtotal'] + $shippingFeePreview, 2);
     <?php endif; ?>
 </main>
 
+<script>
+(() => {
+    const paymentSelect = document.querySelector('[data-payment-method]');
+    const manualPanel = document.querySelector('[data-manual-payment-panel]');
+    const manualRequiredFields = document.querySelectorAll('[data-manual-required]');
+    const placeOrderButton = document.querySelector('[data-checkout-form] button[type="submit"]');
+
+    const syncPaymentUi = () => {
+        if (!paymentSelect) {
+            return;
+        }
+
+        const method = paymentSelect.value;
+        const isManual = method !== 'cod';
+
+        if (manualPanel) {
+            manualPanel.hidden = !isManual;
+        }
+
+        manualRequiredFields.forEach((field) => {
+            field.required = isManual;
+            field.disabled = !isManual;
+        });
+
+        document.querySelectorAll('[data-payment-detail]').forEach((detail) => {
+            detail.hidden = !isManual || detail.dataset.paymentDetail !== method;
+        });
+
+        if (placeOrderButton) {
+            placeOrderButton.textContent = isManual ? 'Submit Payment & Place Order' : 'Confirm Cash on Delivery Order';
+        }
+    };
+
+    if (paymentSelect) {
+        paymentSelect.addEventListener('change', syncPaymentUi);
+        syncPaymentUi();
+    }
+})();
+</script>
 </body>
 </html>

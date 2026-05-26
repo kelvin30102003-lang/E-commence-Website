@@ -183,11 +183,23 @@
         checkoutLink.setAttribute('aria-busy', 'true');
         checkoutLink.classList.add('opacity-70', 'pointer-events-none');
 
-        syncUserToPhpSession(user).then(function () {
+        var redirected = false;
+        var goToCheckout = function () {
+            if (redirected) {
+                return;
+            }
+            redirected = true;
             window.location.href = checkoutLink.href;
+        };
+        var fallbackTimer = window.setTimeout(goToCheckout, 1200);
+
+        syncUserToPhpSession(user).then(function () {
+            window.clearTimeout(fallbackTimer);
+            goToCheckout();
         }).catch(function (error) {
             console.error('Checkout session sync failed:', error);
-            window.location.href = checkoutLink.href;
+            window.clearTimeout(fallbackTimer);
+            goToCheckout();
         });
     });
 

@@ -9,11 +9,57 @@ const ADMIN_SESSION_KEY = 'luvshop_admin_auth';
 const ADMIN_CSRF_KEY = 'luvshop_admin_csrf';
 const ADMIN_SCHEMA_CACHE_TTL_SECONDS = 43200;
 const ADMIN_METADATA_CACHE_TTL_SECONDS = 43200;
-const ADMIN_PAGE_CACHE_TTL_SECONDS = 60;
+const ADMIN_PAGE_CACHE_TTL_SECONDS = 5;
 
 function admin_cache_key(string $namespace, array $payload = []): string
 {
     return 'luvshop:admin:' . $namespace . ':' . hash('sha256', serialize($payload));
+}
+
+function admin_file_cache_path(string $key): string
+{
+    $dir = dirname(__DIR__) . DIRECTORY_SEPARATOR . '.admin_cache';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+    }
+    return $dir . DIRECTORY_SEPARATOR . hash('sha256', $key) . '.cache';
+}
+
+function admin_file_cache_fetch(string $key, mixed &$payload): bool
+{
+    $payload = null;
+    $path = admin_file_cache_path($key);
+    if (!is_file($path)) {
+        return false;
+    }
+
+    $raw = @file_get_contents($path);
+    if (!is_string($raw) || $raw === '') {
+        return false;
+    }
+
+    $decoded = @unserialize($raw, ['allowed_classes' => false]);
+    if (!is_array($decoded) || ($decoded['__admin_file_cache'] ?? 0) !== 1) {
+        return false;
+    }
+
+    if ((int)($decoded['expires_at'] ?? 0) < time()) {
+        @unlink($path);
+        return false;
+    }
+
+    $payload = $decoded['payload'] ?? null;
+    return true;
+}
+
+function admin_file_cache_store(string $key, mixed $payload, int $ttlSeconds): void
+{
+    $wrapped = [
+        '__admin_file_cache' => 1,
+        'expires_at' => time() + max(1, $ttlSeconds),
+        'payload' => $payload,
+    ];
+    @file_put_contents(admin_file_cache_path($key), serialize($wrapped), LOCK_EX);
 }
 
 function admin_cache_fetch(string $key, mixed &$payload): bool
@@ -22,22 +68,22 @@ function admin_cache_fetch(string $key, mixed &$payload): bool
 
     $redis = railway_redis_client();
     if (!$redis instanceof Redis) {
-        return false;
+        return admin_file_cache_fetch($key, $payload);
     }
 
     try {
         $raw = $redis->get($key);
     } catch (Throwable) {
-        return false;
+        return admin_file_cache_fetch($key, $payload);
     }
 
     if (!is_string($raw) || $raw === '') {
-        return false;
+        return admin_file_cache_fetch($key, $payload);
     }
 
     $decoded = @unserialize($raw, ['allowed_classes' => false]);
     if (!is_array($decoded) || ($decoded['__admin_cache'] ?? 0) !== 1 || !array_key_exists('payload', $decoded)) {
-        return false;
+        return admin_file_cache_fetch($key, $payload);
     }
 
     $payload = $decoded['payload'];
@@ -48,6 +94,7 @@ function admin_cache_store(string $key, mixed $payload, int $ttlSeconds): void
 {
     $redis = railway_redis_client();
     if (!$redis instanceof Redis) {
+        admin_file_cache_store($key, $payload, $ttlSeconds);
         return;
     }
 
@@ -61,6 +108,7 @@ function admin_cache_store(string $key, mixed $payload, int $ttlSeconds): void
     try {
         $redis->setex($key, $ttl, $encoded);
     } catch (Throwable) {
+        admin_file_cache_store($key, $payload, $ttlSeconds);
     }
 }
 
@@ -94,13 +142,16 @@ function admin_has_pending_flash_message(): bool
 {
     admin_start_session();
 
+    $hasFlash = false;
     foreach ($_SESSION as $key => $value) {
         if (is_string($key) && str_starts_with($key, 'admin_') && str_ends_with($key, '_flash')) {
-            return true;
+            $hasFlash = true;
+            break;
         }
     }
 
-    return false;
+    admin_close_session_if_active();
+    return $hasFlash;
 }
 
 function admin_page_cache_start(array $admin, string $namespace, int $ttlSeconds = ADMIN_PAGE_CACHE_TTL_SECONDS): void
@@ -202,6 +253,13 @@ function admin_start_session(): void
     ]);
 }
 
+function admin_close_session_if_active(): void
+{
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+}
+
 function admin_ensure_tables(PDO $pdo): void
 {
     static $ensuredInRequest = false;
@@ -255,13 +313,16 @@ function admin_bootstrap_csrf_token(): string
         $_SESSION[ADMIN_CSRF_KEY] = bin2hex(random_bytes(32));
     }
 
-    return (string)$_SESSION[ADMIN_CSRF_KEY];
+    $token = (string)$_SESSION[ADMIN_CSRF_KEY];
+    admin_close_session_if_active();
+    return $token;
 }
 
 function admin_validate_csrf_token(string $token): bool
 {
     admin_start_session();
     $sessionToken = (string)($_SESSION[ADMIN_CSRF_KEY] ?? '');
+    admin_close_session_if_active();
 
     return $sessionToken !== '' && hash_equals($sessionToken, $token);
 }
@@ -379,6 +440,7 @@ function admin_require_auth(string $redirect = 'adminLogin.php'): array
     $admin = admin_current();
 
     if ($admin !== null && $admin['id'] > 0) {
+        admin_close_session_if_active();
         return $admin;
     }
 
@@ -790,13 +852,11 @@ function admin_table_exists(PDO $pdo, string $tableName): bool
             }
         } else {
             try {
-                $rows = $pdo->query(
-                    'SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()'
-                )->fetchAll();
+                $rows = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_NUM);
                 if (is_array($rows)) {
                     $tableList = [];
                     foreach ($rows as $row) {
-                        $normalizedTableName = strtolower(trim((string)($row['table_name'] ?? '')));
+                        $normalizedTableName = strtolower(trim((string)($row[0] ?? '')));
                         if ($normalizedTableName === '') {
                             continue;
                         }
@@ -825,11 +885,11 @@ function admin_table_exists(PDO $pdo, string $tableName): bool
     }
 
     $exists = false;
-    $statement = $pdo->prepare(
-        'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = :table_name'
-    );
-    $statement->execute([':table_name' => $tableName]);
-    $exists = ((int)$statement->fetchColumn()) > 0;
+    if (!preg_match('/^[a-zA-Z0-9_]+$/', $tableName)) {
+        return false;
+    }
+    $statement = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($tableName));
+    $exists = $statement->fetchColumn() !== false;
     $cache[$tableName] = $exists;
     admin_cache_store($singleTableCacheKey, $exists, 3600);
 
@@ -1050,16 +1110,16 @@ function admin_table_has_columns(PDO $pdo, string $tableName, array $requiredCol
     }
 
     if (!isset($cache[$tableName])) {
-        $statement = $pdo->prepare(
-            'SELECT column_name AS column_name_key FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table_name'
-        );
-        $statement->execute([':table_name' => $tableName]);
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $tableName)) {
+            return false;
+        }
+        $statement = $pdo->query('SHOW COLUMNS FROM `' . $tableName . '`');
         $rows = $statement->fetchAll();
 
         $cache[$tableName] = [];
         if (is_array($rows)) {
             foreach ($rows as $row) {
-                $column = (string)($row['column_name_key'] ?? '');
+                $column = (string)($row['Field'] ?? '');
                 if ($column !== '') {
                     $cache[$tableName][$column] = true;
                 }
