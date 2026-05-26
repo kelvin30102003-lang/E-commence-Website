@@ -250,7 +250,6 @@ $cartDrawerAttribute = $activePage === 'cart' ? '' : ' data-cart-drawer-trigger'
     <nav class="hidden md:flex items-center gap-8 gap-xl">
         <a class="<?= ($activePage === 'home' ? $activeLinkClass : $inactiveLinkClass) . ' ' . $baseLinkClass ?>" data-ajax="true" href="<?= $navPrefix ?>Home.php">Home</a>
         <a class="<?= ($activePage === 'shop' ? $activeLinkClass : $inactiveLinkClass) . ' ' . $baseLinkClass ?>" data-ajax="true" href="<?= $navPrefix ?>shop.php">Shop</a>
-        <a class="<?= ($activePage === 'track' ? $activeLinkClass : $inactiveLinkClass) . ' ' . $baseLinkClass ?>" data-ajax="true" href="<?= $navPrefix ?>track.php">Track</a>
         <a class="<?= ($activePage === 'contact' ? $activeLinkClass : $inactiveLinkClass) . ' ' . $baseLinkClass ?>" data-ajax="true" href="<?= $navPrefix ?>contactUs.php">Contact</a>
     </nav>
     <div class="flex items-center gap-4 gap-md">
@@ -259,6 +258,16 @@ $cartDrawerAttribute = $activePage === 'cart' ? '' : ' data-cart-drawer-trigger'
             <?php if ($cartItemCount > 0): ?>
                 <span class="absolute -top-2 -right-3 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-on-primary text-[10px] leading-[18px] text-center font-bold" data-cart-count-badge><?= $cartItemCount > 99 ? '99+' : $cartItemCount ?></span>
             <?php endif; ?>
+        </a>
+        <a
+            class="material-symbols-outlined text-primary hover:opacity-80 transition-opacity active:scale-95 duration-200 <?= $activePage === 'track' ? 'opacity-100' : '' ?>"
+            data-ajax="true"
+            data-icon="local_shipping"
+            href="<?= $navPrefix ?>track.php"
+            title="Track Delivery"
+            aria-label="Track Delivery"
+        >
+            local_shipping
         </a>
         <a
             id="profile-link"

@@ -1,5 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="896" height="747.97143" viewBox="0 0 896 747.97143" role="img" aria-labelledby="empty-cart-title">
   <title id="empty-cart-title">empty_cart</title>
+  <style>
+    #girl path[fill="#a0616a"] { fill: #f2c6b6; }
+    #girl path:nth-of-type(1),
+    #girl path:nth-of-type(3) { fill: #5b3a32; }
+    #girl path:nth-of-type(5),
+    #girl path:nth-of-type(14) { fill: #d97693; }
+    #girl path:nth-of-type(6),
+    #girl path:nth-of-type(7),
+    #girl path:nth-of-type(8) { fill: #f7e8ee; }
+  </style>
 
   <g fill="#f2f2f2">
     <rect x="413.2485" y="35.90779" width="140" height="2"/>

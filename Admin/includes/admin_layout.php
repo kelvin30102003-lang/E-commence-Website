@@ -158,6 +158,12 @@ function admin_render_header(array $admin, array $options = []): void
     $searchValue = (string)($options['search_value'] ?? '');
     $searchPlaceholder = (string)($options['search_placeholder'] ?? 'Search...');
     $searchHidden = isset($options['search_hidden']) && is_array($options['search_hidden']) ? $options['search_hidden'] : [];
+    $adminName = trim((string)($admin['name'] ?? 'Admin'));
+    $adminEmail = trim((string)($admin['email'] ?? ''));
+    $initial = strtoupper(substr($adminName !== '' ? $adminName : $adminEmail, 0, 1));
+    if ($initial === '') {
+        $initial = 'A';
+    }
 
     echo '<header class="h-16 sticky top-0 bg-white shadow-sm flex items-center justify-between px-6 z-40">';
 
@@ -186,9 +192,133 @@ function admin_render_header(array $admin, array $options = []): void
         echo '<div class="w-full"></div>';
     }
 
-    echo '<div class="flex items-center gap-3 ml-6">';
-    echo '<span class="text-sm text-slate-600 hidden md:block">' . admin_html((string)($admin['name'] ?? 'Admin')) . '</span>';
-    echo '<span class="text-xs text-slate-400 hidden md:block">' . admin_html((string)($admin['email'] ?? '')) . '</span>';
+    echo '<div class="relative flex items-center gap-3 ml-6" data-admin-header-actions>';
+    echo '<div class="relative">';
+    echo '<button class="relative h-10 w-10 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-[#78555e] transition-colors flex items-center justify-center" type="button" data-admin-notification-trigger aria-label="Notifications" aria-expanded="false">';
+    echo '<span class="material-symbols-outlined">notifications</span>';
+    echo '<span class="hidden absolute -right-1 -top-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] leading-[18px] text-center font-bold" data-admin-notification-badge>0</span>';
+    echo '</button>';
+    echo '<div class="hidden absolute right-0 mt-4 rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden z-50" style="width: 520px; max-width: calc(100vw - 1rem);" data-admin-notification-menu>';
+    echo '<div class="flex items-center justify-between gap-4 px-6 py-5 border-b border-slate-100 bg-slate-50">';
+    echo '<div><p class="text-xl font-bold text-slate-900">Notifications</p><p class="mt-1 text-sm text-slate-500" data-admin-notification-summary>Checking updates...</p></div>';
+    echo '<button class="h-10 w-10 rounded-full border border-slate-200 bg-white text-slate-500 hover:text-[#78555e] hover:border-[#78555e]/40 flex items-center justify-center transition-colors" type="button" data-admin-notification-refresh aria-label="Refresh notifications"><span class="material-symbols-outlined text-[22px]">refresh</span></button>';
+    echo '</div>';
+    echo '<div class="overflow-y-auto divide-y divide-slate-100" style="min-height: 305px; max-height: calc(100vh - 8rem);" data-admin-notification-list>';
+    echo '<div class="px-6 py-10 text-center text-slate-500"><span class="material-symbols-outlined mb-3 text-4xl text-slate-300">notifications</span><p class="text-base">Loading notifications...</p></div>';
+    echo '</div>';
+    echo '</div>';
+    echo '</div>';
+    echo '<a class="h-10 rounded-full border border-slate-200 bg-white pl-1 pr-3 flex items-center gap-2 hover:bg-slate-50 transition-colors" href="adminProfile.php" data-ajax="true" aria-label="Admin profile">';
+    echo '<span class="h-8 w-8 rounded-full bg-[#ffd1dc] text-[#78555e] font-bold flex items-center justify-center">' . admin_html($initial) . '</span>';
+    echo '<span class="hidden md:block text-left leading-tight"><span class="block text-sm font-semibold text-slate-700 max-w-36 truncate" data-admin-profile-name-label>' . admin_html($adminName !== '' ? $adminName : 'Admin') . '</span><span class="block text-xs text-slate-400 max-w-44 truncate" data-admin-profile-email-label>' . admin_html($adminEmail) . '</span></span>';
+    echo '</a>';
     echo '</div>';
     echo '</header>';
+    echo '<script>
+(() => {
+    const root = document.querySelector("[data-admin-header-actions]");
+    if (!root || root.dataset.adminHeaderReady === "1") {
+        return;
+    }
+    root.dataset.adminHeaderReady = "1";
+
+    const notificationTrigger = root.querySelector("[data-admin-notification-trigger]");
+    const notificationMenu = root.querySelector("[data-admin-notification-menu]");
+    const notificationBadge = root.querySelector("[data-admin-notification-badge]");
+    const notificationList = root.querySelector("[data-admin-notification-list]");
+    const notificationSummary = root.querySelector("[data-admin-notification-summary]");
+    const notificationRefresh = root.querySelector("[data-admin-notification-refresh]");
+
+    const closeMenus = () => {
+        if (notificationMenu) {
+            notificationMenu.classList.add("hidden");
+            notificationTrigger && notificationTrigger.setAttribute("aria-expanded", "false");
+        }
+    };
+
+    const toggleMenu = (menu, trigger) => {
+        if (!menu || !trigger) {
+            return;
+        }
+        const willOpen = menu.classList.contains("hidden");
+        menu.classList.toggle("hidden", !willOpen);
+        trigger.setAttribute("aria-expanded", willOpen ? "true" : "false");
+    };
+
+    const escapeHtml = (value) => String(value || "").replace(/[&<>"\x27]/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "\x27": "&#039;"
+    }[char]));
+
+    const renderNotifications = (payload) => {
+        const total = Math.max(0, Number(payload.total || 0));
+        if (notificationBadge) {
+            notificationBadge.textContent = total > 99 ? "99+" : String(total);
+            notificationBadge.classList.toggle("hidden", total <= 0);
+        }
+        if (notificationSummary) {
+            notificationSummary.textContent = total > 0 ? `${total} item${total === 1 ? "" : "s"} need attention` : "";
+        }
+        if (!notificationList) {
+            return;
+        }
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        if (items.length === 0) {
+            notificationList.innerHTML = "<div class=\"px-8 py-20 text-center text-slate-500\"><p class=\"text-sm font-medium text-slate-500 lowercase\">no new message</p></div>";
+            return;
+        }
+        notificationList.innerHTML = items.map((item) => {
+            const icon = escapeHtml(item.icon || "notifications");
+            const href = escapeHtml(item.href || "#");
+            const title = escapeHtml(item.title || "Notification");
+            const detail = escapeHtml(item.detail || "");
+            const time = escapeHtml(item.time || "");
+            return `<a class=\"flex gap-4 px-6 py-5 hover:bg-slate-50 transition-colors\" href=\"${href}\"><span class=\"h-12 w-12 shrink-0 rounded-full bg-[#ffd1dc] text-[#78555e] flex items-center justify-center\"><span class=\"material-symbols-outlined text-[24px]\">${icon}</span></span><span class=\"min-w-0 flex-1\"><span class=\"block text-base font-semibold text-slate-900 truncate\">${title}</span><span class=\"mt-1 block text-sm leading-6 text-slate-600 line-clamp-2\">${detail}</span><span class=\"mt-2 block text-xs font-medium text-slate-400\">${time}</span></span><span class=\"material-symbols-outlined self-center text-slate-300\">chevron_right</span></a>`;
+        }).join("");
+    };
+
+    const loadNotifications = async () => {
+        try {
+            const response = await fetch("adminNotifications.php", {
+                credentials: "same-origin",
+                headers: { "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" }
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.ok) {
+                throw new Error(payload.message || "Unable to load notifications.");
+            }
+            renderNotifications(payload);
+        } catch (error) {
+            if (notificationSummary) {
+                notificationSummary.textContent = "Notification check failed";
+            }
+        }
+    };
+
+    notificationTrigger && notificationTrigger.addEventListener("click", () => {
+        toggleMenu(notificationMenu, notificationTrigger);
+        loadNotifications();
+    });
+    notificationRefresh && notificationRefresh.addEventListener("click", loadNotifications);
+    document.addEventListener("click", (event) => {
+        if (!root.contains(event.target)) {
+            closeMenus();
+        }
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeMenus();
+        }
+    });
+    loadNotifications();
+    window.setInterval(() => {
+        if (!document.hidden) {
+            loadNotifications();
+        }
+    }, 8000);
+})();
+</script>';
 }

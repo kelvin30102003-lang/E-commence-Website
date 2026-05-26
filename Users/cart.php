@@ -74,7 +74,7 @@ $checkoutHref = $isLoggedIn
             appearance: textfield;
         }
         .empty-cart-illustration {
-            width: min(260px, 72vw);
+            width: min(520px, 86vw);
             height: auto;
         }
     </style>
@@ -185,7 +185,7 @@ $checkoutHref = $isLoggedIn
 
     <?php if (count($cart['items']) === 0): ?>
         <section class="<?= $isDrawer ? 'min-h-[calc(100vh-4rem)]' : 'min-h-[58vh]' ?> flex flex-col items-center justify-center text-center px-md py-xl">
-            <img class="empty-cart-illustration mb-lg" src="../Assect/images/empty-cart.svg" alt="Empty shopping cart"/>
+            <img class="empty-cart-illustration mb-lg" src="../Assect/images/empty-cart-pretty-girl.png" alt="Empty shopping cart"/>
             <p class="text-[22px] leading-8 font-body-md text-black">No products in the cart.</p>
         </section>
     <?php else: ?>

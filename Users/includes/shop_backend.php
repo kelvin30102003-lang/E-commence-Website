@@ -1735,6 +1735,7 @@ function shop_ensure_checkout_tables(PDO $pdo): void
         $pdo->exec("ALTER TABLE orders ADD COLUMN payment_method VARCHAR(50) NULL AFTER shipping_status");
     }
     $pdo->exec("ALTER TABLE orders MODIFY payment_status VARCHAR(40) NOT NULL DEFAULT 'unpaid'");
+    shop_ensure_payment_method_column_is_string($pdo, 'orders');
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS order_items (
@@ -1791,13 +1792,18 @@ function shop_can_skip_schema_bootstrap(): bool
         return false;
     }
 
+    $schemaVersion = trim((string)@file_get_contents($cacheFile));
+    if ($schemaVersion !== 'checkout-schema-v2') {
+        return false;
+    }
+
     $lastCheckedAt = (int)@filemtime($cacheFile);
     return $lastCheckedAt > 0 && (time() - $lastCheckedAt) < 43200;
 }
 
 function shop_mark_schema_bootstrap_checked(): void
 {
-    @touch(shop_schema_bootstrap_cache_file());
+    @file_put_contents(shop_schema_bootstrap_cache_file(), 'checkout-schema-v2', LOCK_EX);
 }
 
 function shop_ensure_checkout_schema_columns(PDO $pdo): void
@@ -1937,6 +1943,7 @@ function shop_ensure_payment_tables(PDO $pdo): void
     );
 
     shop_ensure_payment_schema_columns($pdo);
+    shop_ensure_payment_method_column_is_string($pdo, 'payments');
 
     $insert = $pdo->prepare(
         'INSERT INTO payment_methods (name, code, account_name, account_phone, account_number, qr_image, instructions, is_active, sort_order, created_at, updated_at)
@@ -2014,6 +2021,28 @@ function shop_schema_table_exists_fresh(PDO $pdo, string $tableName): bool
         return $statement->fetchColumn() !== false;
     } catch (Throwable) {
         return false;
+    }
+}
+
+function shop_ensure_payment_method_column_is_string(PDO $pdo, string $tableName): void
+{
+    if (!preg_match('/^[a-zA-Z0-9_]+$/', $tableName) || !shop_schema_table_exists_fresh($pdo, $tableName)) {
+        return;
+    }
+
+    if (!shop_schema_column_exists_fresh($pdo, $tableName, 'payment_method')) {
+        return;
+    }
+
+    try {
+        $statement = $pdo->query('SHOW COLUMNS FROM `' . $tableName . "` LIKE 'payment_method'");
+        $column = $statement !== false ? $statement->fetch() : false;
+        $type = strtolower(trim((string)($column['Type'] ?? '')));
+        if ($type !== 'varchar(50)') {
+            $pdo->exec('ALTER TABLE `' . $tableName . '` MODIFY payment_method VARCHAR(50) NULL');
+        }
+    } catch (Throwable) {
+        // Let the next payment write surface any remaining database-specific issue.
     }
 }
 
