@@ -24,6 +24,53 @@ function railway_mysql_bool(mixed $value, bool $default = false): bool
     return $default;
 }
 
+function railway_mysql_load_env_file(string $path): void
+{
+    if (!is_file($path) || !is_readable($path)) {
+        return;
+    }
+
+    foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+        $line = trim($line);
+
+        if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) {
+            continue;
+        }
+
+        [$name, $value] = explode('=', $line, 2);
+        $name = trim($name);
+
+        if ($name === '' || getenv($name) !== false) {
+            continue;
+        }
+
+        $value = trim($value);
+        if (
+            (str_starts_with($value, '"') && str_ends_with($value, '"')) ||
+            (str_starts_with($value, "'") && str_ends_with($value, "'"))
+        ) {
+            $value = substr($value, 1, -1);
+        }
+
+        putenv($name . '=' . $value);
+        $_ENV[$name] = $value;
+        $_SERVER[$name] = $value;
+    }
+}
+
+function railway_mysql_env(array $keys, string $default = ''): string
+{
+    foreach ($keys as $key) {
+        $value = getenv($key);
+
+        if ($value !== false && $value !== '') {
+            return (string)$value;
+        }
+    }
+
+    return $default;
+}
+
 function railway_mysql_config(): array
 {
     $configPath = __DIR__ . '/railway_mysql_config.php';
@@ -46,11 +93,14 @@ function railway_mysql_config(): array
         ];
     }
 
-    $host = getenv('MYSQLHOST') ?: '';
-    $port = getenv('MYSQLPORT') ?: '';
-    $database = getenv('MYSQLDATABASE') ?: '';
-    $user = getenv('MYSQLUSER') ?: '';
-    $password = getenv('MYSQLPASSWORD') ?: '';
+    railway_mysql_load_env_file(__DIR__ . '/../backend/.env');
+    railway_mysql_load_env_file(__DIR__ . '/../.env');
+
+    $host = railway_mysql_env(['MYSQLHOST', 'MYSQL_HOST', 'DB_HOST']);
+    $port = railway_mysql_env(['MYSQLPORT', 'MYSQL_PORT', 'DB_PORT'], '3306');
+    $database = railway_mysql_env(['MYSQLDATABASE', 'MYSQL_DATABASE', 'DB_DATABASE']);
+    $user = railway_mysql_env(['MYSQLUSER', 'MYSQL_USER', 'DB_USERNAME']);
+    $password = railway_mysql_env(['MYSQLPASSWORD', 'MYSQL_PASSWORD', 'DB_PASSWORD']);
 
     $mysqlUrl = getenv('MYSQL_URL') ?: '';
     if ($mysqlUrl !== '') {
@@ -72,7 +122,7 @@ function railway_mysql_config(): array
         'user' => $user,
         'password' => $password,
         'charset' => 'utf8mb4',
-        'persistent' => railway_mysql_bool(getenv('MYSQL_PERSISTENT') ?: '1', true),
+        'persistent' => railway_mysql_bool(railway_mysql_env(['MYSQL_PERSISTENT', 'DB_PERSISTENT'], '1'), true),
     ];
 }
 
@@ -85,12 +135,12 @@ function railway_mysql_db(): PDO
     }
 
     $config = railway_mysql_config();
-    $requiredKeys = ['host', 'port', 'database', 'user', 'password'];
+    $requiredKeys = ['host', 'port', 'database', 'user'];
 
     foreach ($requiredKeys as $key) {
         if ($config[$key] === '') {
             throw new RuntimeException(
-                'Missing MySQL config "' . $key . '". Set MYSQL* env vars or create DB/railway_mysql_config.php.'
+                'Missing MySQL config "' . $key . '". Set DB_* or MYSQL* env vars, or create DB/railway_mysql_config.php.'
             );
         }
     }
