@@ -96,10 +96,10 @@ function railway_mysql_config(): array
     railway_mysql_load_env_file(__DIR__ . '/../backend/.env');
     railway_mysql_load_env_file(__DIR__ . '/../.env');
 
-    $host = railway_mysql_env(['MYSQLHOST', 'MYSQL_HOST', 'DB_HOST']);
+    $host = railway_mysql_env(['MYSQLHOST', 'MYSQL_HOST', 'DB_HOST'], '127.0.0.1');
     $port = railway_mysql_env(['MYSQLPORT', 'MYSQL_PORT', 'DB_PORT'], '3306');
-    $database = railway_mysql_env(['MYSQLDATABASE', 'MYSQL_DATABASE', 'DB_DATABASE']);
-    $user = railway_mysql_env(['MYSQLUSER', 'MYSQL_USER', 'DB_USERNAME']);
+    $database = railway_mysql_env(['MYSQLDATABASE', 'MYSQL_DATABASE', 'DB_DATABASE'], 'ecommerce');
+    $user = railway_mysql_env(['MYSQLUSER', 'MYSQL_USER', 'DB_USERNAME'], 'root');
     $password = railway_mysql_env(['MYSQLPASSWORD', 'MYSQL_PASSWORD', 'DB_PASSWORD']);
 
     $mysqlUrl = getenv('MYSQL_URL') ?: '';
