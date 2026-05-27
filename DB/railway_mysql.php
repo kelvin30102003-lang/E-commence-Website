@@ -71,6 +71,25 @@ function railway_mysql_env(array $keys, string $default = ''): string
     return $default;
 }
 
+function railway_mysql_connection_host(string $host): string
+{
+    if ($host === '' || filter_var($host, FILTER_VALIDATE_IP) !== false) {
+        return $host;
+    }
+
+    $records = dns_get_record($host, DNS_A);
+    if (is_array($records)) {
+        foreach ($records as $record) {
+            $ip = (string)($record['ip'] ?? '');
+            if ($ip !== '') {
+                return $ip;
+            }
+        }
+    }
+
+    return $host;
+}
+
 function railway_mysql_config(): array
 {
     $configPath = __DIR__ . '/railway_mysql_config.php';
@@ -147,7 +166,7 @@ function railway_mysql_db(): PDO
 
     $dsn = sprintf(
         'mysql:host=%s;port=%s;dbname=%s;charset=%s',
-        $config['host'],
+        railway_mysql_connection_host($config['host']),
         $config['port'],
         $config['database'],
         $config['charset']
