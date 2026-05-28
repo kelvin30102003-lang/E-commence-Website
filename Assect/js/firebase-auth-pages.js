@@ -60,11 +60,11 @@
         }
 
         if (error.code === 'auth/unauthorized-domain') {
-            return 'This domain is not authorized. Add localhost in Firebase Authentication > Settings > Authorized domains.';
+            return 'This domain is not authorized. Add ' + window.location.hostname + ' in Firebase Authentication > Settings > Authorized domains.';
         }
 
         if (error.code === 'auth/popup-blocked') {
-            return 'Popup was blocked. Allow popups for this site and try again.';
+            return 'Popup was blocked. Redirecting to Google sign-in instead...';
         }
 
         if (error.code === 'auth/popup-closed-by-user') {
@@ -72,6 +72,29 @@
         }
 
         return error.message || 'Authentication failed. Please try again.';
+    }
+
+    function shouldUseRedirectSignIn() {
+        var userAgent = window.navigator.userAgent || '';
+        var isMobileBrowser = /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent);
+        var isStandaloneWebView = /\bFBAN\b|\bFBAV\b|Instagram|Line\/|MicroMessenger/i.test(userAgent);
+
+        return isMobileBrowser || isStandaloneWebView;
+    }
+
+    function isPopupFallbackError(error) {
+        return error && (
+            error.code === 'auth/popup-blocked' ||
+            error.code === 'auth/popup-closed-by-user' ||
+            error.code === 'auth/cancelled-popup-request' ||
+            error.code === 'auth/web-storage-unsupported'
+        );
+    }
+
+    function createGoogleProvider() {
+        var provider = new firebase.auth.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        return provider;
     }
 
     function syncUserToMySql(user) {
@@ -141,12 +164,25 @@
     var registerFeedback = document.getElementById('firebase-register-feedback');
 
     function signInWithGoogle(feedbackElement) {
-        var provider = new firebase.auth.GoogleAuthProvider();
-        provider.setCustomParameters({ prompt: 'select_account' });
+        var provider = createGoogleProvider();
 
         setFeedback(feedbackElement, 'Opening Google sign-in...', false);
 
+        if (shouldUseRedirectSignIn()) {
+            auth.signInWithRedirect(provider).catch(function (error) {
+                setFeedback(feedbackElement, getFriendlyAuthErrorMessage(error), true);
+            });
+            return;
+        }
+
         auth.signInWithPopup(provider).catch(function (error) {
+            if (isPopupFallbackError(error)) {
+                setFeedback(feedbackElement, getFriendlyAuthErrorMessage(error), false);
+                return auth.signInWithRedirect(provider).catch(function (redirectError) {
+                    setFeedback(feedbackElement, getFriendlyAuthErrorMessage(redirectError), true);
+                });
+            }
+
             setFeedback(feedbackElement, getFriendlyAuthErrorMessage(error), true);
         });
     }
@@ -165,6 +201,11 @@
             });
         });
     }
+
+    auth.getRedirectResult().catch(function (error) {
+        var feedbackElement = registerForm ? registerFeedback : loginFeedback;
+        setFeedback(feedbackElement, getFriendlyAuthErrorMessage(error), true);
+    });
 
     if (registerForm && registerName && registerEmail && registerPassword) {
         registerForm.addEventListener('submit', function (event) {
