@@ -37,15 +37,10 @@ if ($idToken === '') {
     exit;
 }
 
-$firebaseConfigPath = __DIR__ . '/firebase_config.php';
-if (!file_exists($firebaseConfigPath)) {
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Missing Firebase config']);
-    exit;
-}
+require_once __DIR__ . '/firebase_config_loader.php';
 
-$firebaseConfig = require $firebaseConfigPath;
-$apiKey = is_array($firebaseConfig) ? (string)($firebaseConfig['apiKey'] ?? '') : '';
+$firebaseConfig = luvshop_firebase_config();
+$apiKey = (string)($firebaseConfig['apiKey'] ?? '');
 
 if ($apiKey === '') {
     http_response_code(500);

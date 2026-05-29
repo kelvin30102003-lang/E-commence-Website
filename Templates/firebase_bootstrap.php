@@ -1,22 +1,10 @@
 <?php
-$firebaseConfigPath = __DIR__ . '/../Auth/firebase_config.php';
+require_once __DIR__ . '/../Auth/firebase_config_loader.php';
 
-if (!file_exists($firebaseConfigPath)) {
+$firebaseConfig = luvshop_firebase_config();
+
+if (!luvshop_firebase_config_is_complete($firebaseConfig)) {
     return;
-}
-
-$firebaseConfig = require $firebaseConfigPath;
-
-if (!is_array($firebaseConfig)) {
-    return;
-}
-
-$requiredKeys = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
-
-foreach ($requiredKeys as $requiredKey) {
-    if (empty($firebaseConfig[$requiredKey])) {
-        return;
-    }
 }
 ?>
 <script>
