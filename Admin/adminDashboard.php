@@ -108,6 +108,83 @@ $revenueAreaPath = $revenueLinePath . ' L 800,200 L 0,200 Z';
             background: #ffd1dc;
             border-radius: 10px;
         }
+
+        .admin-dashboard-shell {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            padding: 24px;
+        }
+
+        .admin-dashboard-hero {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .admin-dashboard-hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .admin-dashboard-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 16px;
+        }
+
+        .admin-dashboard-main-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+            gap: 24px;
+            align-items: stretch;
+        }
+
+        .admin-dashboard-card {
+            border: 1px solid #e4e2e2;
+            border-radius: 16px;
+            background: #ffffff;
+            padding: 24px;
+            box-shadow: 0 10px 30px -5px rgba(120, 85, 94, 0.08);
+        }
+
+        .admin-dashboard-card h3 {
+            font-size: 24px;
+            line-height: 32px;
+            font-weight: 600;
+        }
+
+        .admin-dashboard-table-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+            gap: 24px;
+            align-items: start;
+        }
+
+        @media (max-width: 1100px) {
+            .admin-dashboard-main-grid,
+            .admin-dashboard-table-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 767px) {
+            .admin-dashboard-shell {
+                padding: 16px;
+            }
+
+            .admin-dashboard-hero {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .admin-dashboard-hero-actions {
+                justify-content: flex-start;
+            }
+        }
     </style>
 </head>
 <body class="bg-background text-on-surface">
@@ -126,25 +203,25 @@ $revenueAreaPath = $revenueLinePath . ' L 800,200 L 0,200 Z';
         ]);
         ?>
 
-        <div class="p-lg space-y-lg">
+        <div class="admin-dashboard-shell p-lg space-y-lg">
             <?php if ($dbError !== null): ?>
                 <section class="rounded-lg border border-red-200 bg-error-container px-md py-sm text-red-800">
                     Database error: <?= admin_html($dbError) ?>
                 </section>
             <?php endif; ?>
 
-            <section class="flex justify-between items-end">
+            <section class="admin-dashboard-hero flex justify-between items-end">
                 <div>
                     <h2 class="font-headline-lg text-headline-lg text-primary">Good Morning, Manager!</h2>
                     <p class="font-body-md text-body-md text-on-surface-variant">Here's what's happening at LuvShop today.</p>
                 </div>
-                <div class="flex gap-sm">
+                <div class="admin-dashboard-hero-actions flex gap-sm">
                     <button class="bg-surface-container-lowest border border-outline-variant px-lg py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors">Export Data</button>
                     <button class="bg-primary text-white px-lg py-2 rounded-lg font-label-md text-label-md shadow-lg active:scale-95 transition-transform">Create Promotion</button>
                 </div>
             </section>
 
-            <section class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-md">
+            <section class="admin-dashboard-metrics grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-md">
                 <div class="bg-surface-container-lowest p-md rounded-lg soft-shadow border border-surface-variant flex flex-col gap-xs">
                     <span class="text-label-sm font-label-sm text-on-surface-variant uppercase tracking-wider">Total Sales</span>
                     <div class="flex items-center justify-between">
@@ -178,8 +255,8 @@ $revenueAreaPath = $revenueLinePath . ' L 800,200 L 0,200 Z';
                 </div>
             </section>
 
-            <section class="grid grid-cols-1 lg:grid-cols-3 gap-lg">
-                <div class="lg:col-span-2 bg-surface-container-lowest p-lg rounded-lg soft-shadow border border-surface-variant">
+            <section class="admin-dashboard-main-grid grid grid-cols-1 lg:grid-cols-3 gap-lg">
+                <div class="admin-dashboard-card lg:col-span-2 bg-surface-container-lowest p-lg rounded-lg soft-shadow border border-surface-variant">
                     <div class="flex justify-between items-center mb-lg">
                         <h3 class="font-headline-md text-headline-md text-on-surface">Revenue Trend</h3>
                         <select class="bg-surface-container-low border-none rounded-lg text-label-md py-1 px-4 focus:ring-2 focus:ring-primary-container">
@@ -204,7 +281,7 @@ $revenueAreaPath = $revenueLinePath . ' L 800,200 L 0,200 Z';
                         </div>
                     </div>
                 </div>
-                <div class="bg-surface-container-lowest p-lg rounded-lg soft-shadow border border-surface-variant flex flex-col">
+                <div class="admin-dashboard-card bg-surface-container-lowest p-lg rounded-lg soft-shadow border border-surface-variant flex flex-col">
                     <h3 class="font-headline-md text-headline-md text-on-surface mb-lg">Order Status</h3>
                     <div class="flex-1 flex flex-col justify-center items-center">
                         <div class="relative w-48 h-48 rounded-full border-[16px] border-surface-container flex items-center justify-center mb-lg">
@@ -235,8 +312,8 @@ $revenueAreaPath = $revenueLinePath . ' L 800,200 L 0,200 Z';
                 </div>
             </section>
 
-            <section class="grid grid-cols-1 lg:grid-cols-3 gap-lg">
-                <div class="lg:col-span-2 bg-surface-container-lowest p-lg rounded-lg soft-shadow border border-surface-variant overflow-hidden">
+            <section class="admin-dashboard-table-grid grid grid-cols-1 lg:grid-cols-3 gap-lg">
+                <div class="admin-dashboard-card lg:col-span-2 bg-surface-container-lowest p-lg rounded-lg soft-shadow border border-surface-variant overflow-hidden">
                     <div class="flex justify-between items-center mb-lg">
                         <h3 class="font-headline-md text-headline-md text-on-surface">Recent Orders</h3>
                         <a class="text-primary font-label-md text-label-md hover:underline" href="manageOrders.php">View All</a>
@@ -275,7 +352,7 @@ $revenueAreaPath = $revenueLinePath . ' L 800,200 L 0,200 Z';
                         </table>
                     </div>
                 </div>
-                <div class="bg-surface-container-lowest p-lg rounded-lg soft-shadow border border-surface-variant">
+                <div class="admin-dashboard-card bg-surface-container-lowest p-lg rounded-lg soft-shadow border border-surface-variant">
                     <h3 class="font-headline-md text-headline-md text-on-surface mb-lg">Quick Stats</h3>
                     <div class="space-y-md">
                         <div class="flex items-center justify-between bg-surface-container-low rounded-lg px-md py-sm">

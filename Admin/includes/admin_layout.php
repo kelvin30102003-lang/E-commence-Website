@@ -97,7 +97,10 @@ function admin_css_href(): ?string
 {
     $href = admin_vite_asset_href('resources/css/admin.css');
     if ($href !== null) {
-        return $href;
+        $path = __DIR__ . '/../../' . ltrim(str_replace('../', '', $href), '/');
+        $version = is_file($path) ? (string)filemtime($path) : '1';
+
+        return $href . '?v=' . rawurlencode($version);
     }
 
     $assetsDir = __DIR__ . '/../../backend/public/build/assets';
@@ -119,7 +122,10 @@ function admin_css_href(): ?string
         return null;
     }
 
-    return '../backend/public/build/assets/' . $latest;
+    $path = $assetsDir . '/' . $latest;
+    $version = is_file($path) ? (string)filemtime($path) : '1';
+
+    return '../backend/public/build/assets/' . $latest . '?v=' . rawurlencode($version);
 }
 
 function admin_material_symbols_href(): string
