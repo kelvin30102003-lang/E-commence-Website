@@ -1,7 +1,53 @@
 (function () {
+    var initAttempts = 0;
+    var maxInitAttempts = 100;
+
+    function getVisibleFeedbackElement() {
+        return document.getElementById('firebase-register-feedback') || document.getElementById('firebase-login-feedback');
+    }
+
+    function setBootstrapFeedback(message, isError) {
+        var element = getVisibleFeedbackElement();
+        if (!element) {
+            return;
+        }
+
+        element.textContent = message || '';
+        element.classList.remove('text-error', 'text-secondary');
+
+        if (message) {
+            element.classList.add(isError ? 'text-error' : 'text-secondary');
+        }
+    }
+
+    function waitForFirebaseRuntime() {
+        var firebaseConfig = window.__LUVSHOP_FIREBASE_CONFIG__;
+        var hasFirebaseRuntime = typeof firebase !== 'undefined' && firebase && typeof firebase.auth === 'function';
+
+        if (firebaseConfig && hasFirebaseRuntime) {
+            initAuthPage();
+            return;
+        }
+
+        initAttempts += 1;
+
+        if (initAttempts <= maxInitAttempts) {
+            window.setTimeout(waitForFirebaseRuntime, 100);
+            return;
+        }
+
+        if (!firebaseConfig) {
+            setBootstrapFeedback('Firebase config is missing. Check Auth/firebase_config.php.', true);
+            return;
+        }
+
+        setBootstrapFeedback('Firebase could not load. Check your internet connection or browser script blocking.', true);
+    }
+
+    function initAuthPage() {
     var firebaseConfig = window.__LUVSHOP_FIREBASE_CONFIG__;
 
-    if (!firebaseConfig || typeof firebase === 'undefined') {
+    if (!firebaseConfig || typeof firebase === 'undefined' || !firebase || typeof firebase.auth !== 'function') {
         return;
     }
 
@@ -258,4 +304,7 @@
                 setFeedback(feedbackElement, error.message || 'Failed to save account data to MySQL.', true);
             });
     });
+    }
+
+    waitForFirebaseRuntime();
 })();

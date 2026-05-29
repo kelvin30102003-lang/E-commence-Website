@@ -309,6 +309,7 @@ function upsertUsersTable(PDO $pdo, array $firebaseUser): void
         'INSERT INTO users (firebase_uid, name, email, avatar, email_verified, last_login_at)
          VALUES (:firebase_uid, :name, :email, :avatar, :email_verified, :last_login_at)
          ON DUPLICATE KEY UPDATE
+            firebase_uid = VALUES(firebase_uid),
             name = VALUES(name),
             email = VALUES(email),
             avatar = VALUES(avatar),
