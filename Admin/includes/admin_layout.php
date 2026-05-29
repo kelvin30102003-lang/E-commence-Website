@@ -177,18 +177,29 @@ function admin_css_file_path(): ?string
 
 function admin_render_compiled_css_inline(): void
 {
-    $cssPath = admin_css_file_path();
-    if ($cssPath === null) {
-        return;
+    $cssPaths = [];
+    $fallbackPath = __DIR__ . '/../../Assect/css/admin-fallback.css';
+    if (is_file($fallbackPath) && is_readable($fallbackPath)) {
+        $cssPaths[] = $fallbackPath;
     }
 
-    $css = @file_get_contents($cssPath);
-    if (!is_string($css) || trim($css) === '') {
+    $buildPath = admin_css_file_path();
+    if ($buildPath !== null && !in_array($buildPath, $cssPaths, true)) {
+        $cssPaths[] = $buildPath;
+    }
+
+    if (count($cssPaths) === 0) {
         return;
     }
 
     echo '<style id="admin-compiled-css">';
-    echo str_replace('</style', '<\/style', $css);
+    foreach ($cssPaths as $cssPath) {
+        $css = @file_get_contents($cssPath);
+        if (!is_string($css) || trim($css) === '') {
+            continue;
+        }
+        echo str_replace('</style', '<\/style', $css);
+    }
     echo '</style>';
 }
 

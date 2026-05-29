@@ -187,7 +187,7 @@ function admin_page_cache_start(array $admin, string $namespace, int $ttlSeconds
         'admin_id' => $adminId,
         'session' => session_id(),
         'uri' => $requestUri,
-        'v' => 4,
+        'v' => 5,
     ]);
 
     $cachedHtml = null;
