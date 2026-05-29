@@ -128,6 +128,70 @@ function admin_css_href(): ?string
     return '../backend/public/build/assets/' . $latest . '?v=' . rawurlencode($version);
 }
 
+function admin_css_file_path(): ?string
+{
+    static $path = null;
+    static $loaded = false;
+
+    if ($loaded) {
+        return $path;
+    }
+    $loaded = true;
+
+    $manifestPath = __DIR__ . '/../../backend/public/build/manifest.json';
+    if (is_file($manifestPath) && is_readable($manifestPath)) {
+        $raw = @file_get_contents($manifestPath);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        $entry = is_array($decoded) ? ($decoded['resources/css/admin.css'] ?? null) : null;
+        $file = is_array($entry) ? (string)($entry['file'] ?? '') : '';
+        if ($file !== '') {
+            $candidate = __DIR__ . '/../../backend/public/build/' . ltrim($file, '/');
+            if (is_file($candidate) && is_readable($candidate)) {
+                $path = $candidate;
+                return $path;
+            }
+        }
+    }
+
+    $assetsDir = __DIR__ . '/../../backend/public/build/assets';
+    if (!is_dir($assetsDir)) {
+        return null;
+    }
+
+    $matches = glob($assetsDir . '/admin-*.css');
+    if (!is_array($matches) || count($matches) === 0) {
+        return null;
+    }
+
+    usort($matches, static function (string $a, string $b): int {
+        return filemtime($b) <=> filemtime($a);
+    });
+
+    $candidate = $matches[0];
+    if (is_file($candidate) && is_readable($candidate)) {
+        $path = $candidate;
+    }
+
+    return $path;
+}
+
+function admin_render_compiled_css_inline(): void
+{
+    $cssPath = admin_css_file_path();
+    if ($cssPath === null) {
+        return;
+    }
+
+    $css = @file_get_contents($cssPath);
+    if (!is_string($css) || trim($css) === '') {
+        return;
+    }
+
+    echo '<style id="admin-compiled-css">';
+    echo str_replace('</style', '<\/style', $css);
+    echo '</style>';
+}
+
 function admin_material_symbols_href(): string
 {
     $assetPath = __DIR__ . '/../../Assect/css/material-symbols-outlined.css';
@@ -147,6 +211,7 @@ function admin_render_critical_css(): void
     echo '},borderRadius:{DEFAULT:"1rem",lg:"2rem",xl:"3rem",full:"9999px"},spacing:{unit:"4px","margin-mobile":"20px","margin-desktop":"80px",xs:"4px",sm:"8px",md:"16px",lg:"24px",gutter:"16px",xl:"48px"},fontFamily:{"headline-md":["Quicksand"],"headline-lg":["Quicksand"],"body-lg":["Plus Jakarta Sans"],"body-md":["Plus Jakarta Sans"],"headline-lg-mobile":["Quicksand"],"display-lg":["Quicksand"],"label-sm":["Plus Jakarta Sans"],"label-md":["Plus Jakarta Sans"]},fontSize:{"headline-md":["24px",{lineHeight:"32px",fontWeight:"600"}],"headline-lg":["32px",{lineHeight:"40px",fontWeight:"700"}],"body-lg":["18px",{lineHeight:"28px",fontWeight:"400"}],"body-md":["16px",{lineHeight:"24px",fontWeight:"400"}],"headline-lg-mobile":["24px",{lineHeight:"32px",fontWeight:"700"}],"display-lg":["48px",{lineHeight:"56px",letterSpacing:"0",fontWeight:"700"}],"label-sm":["12px",{lineHeight:"16px",fontWeight:"700"}],"label-md":["14px",{lineHeight:"20px",letterSpacing:"0",fontWeight:"600"}]}}}}};';
     echo '</script>';
     echo '<script src="../Assect/js/tailwindcss-local.js?v=' . admin_html($tailwindVersion) . '"></script>';
+    admin_render_compiled_css_inline();
     echo '<style id="admin-critical-css">';
     echo 'html{background:#fbf9f8;}';
     echo 'body{margin:0;min-height:100vh;background:#fbf9f8;color:#1b1c1c;font-family:"Plus Jakarta Sans","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}';
