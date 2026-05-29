@@ -261,38 +261,24 @@ shop_start_session();
                 <p class="text-body-md font-body-md text-on-surface-variant">The hearts and hands behind the LuvShop experience.</p>
             </div>
 
-            <div class="grid grid-cols-2 gap-8 md:grid-cols-4">
+            <div class="mx-auto grid max-w-3xl grid-cols-1 gap-8 sm:grid-cols-2">
                 <article class="about-reveal group text-center">
                     <div class="mb-5 aspect-square overflow-hidden rounded-full border-4 border-white soft-shadow transition-colors duration-300 group-hover:border-primary-container">
-                        <img alt="Sarah Bloom portrait" class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBKLJsIz9ExMCKpz1asi1LbuBQ2BoulG1RMnR7rJcSBisMmNrDNb2RWiwlwDvgJ1OJecG6q28qdrOcduJMxw08CS_lRZPJDWfHghr-Vi9Q2KZWG4HN-RkkYqHHflF96Id0Hnrr8FLjT1-Tv-TQDGyXcOhrMWojYff_dTLCVOs_V54ANL3lHxNefTuGJecH7dhuZW85IOL0o98bbYTS4UkDrC_PSDfmyWfHit7jvKYgJSfiZZXzpVJaChERuWTfbdocuiws-R4O0hI0"/>
+                        <img alt="Myint Myat Aung portrait" class="h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-110" src="../Assect/images/team/cv.png"/>
                     </div>
-                    <h3 class="text-headline-md font-headline-md text-on-surface">Sarah Bloom</h3>
-                    <p class="text-label-md font-label-md text-primary">Chief Joy Officer</p>
+                    <h3 class="text-headline-md font-headline-md text-on-surface">Myint Myat Aung</h3>
+                    <p class="text-label-md font-label-md text-primary">Founder Developer</p>
                 </article>
 
                 <article class="about-reveal group text-center">
                     <div class="mb-5 aspect-square overflow-hidden rounded-full border-4 border-white soft-shadow transition-colors duration-300 group-hover:border-secondary-container">
-                        <img alt="David Mint portrait" class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBxBB-sQhVcuwtu9VoSkstTU7bdvvB1g8mWvkZvVTbYzamj-g2W83a6nVpJyYx6lKufRqW0cimrld70MPIAN1Fvxf8r9vcG8cTjBiqbXFBCZmKaT86Cgqmglzmnnnr0EMuaa05IFQDMvHrNZq1M-iy8H_g-hYDqh_6jECrQoK0Cg-EEyYlFEiTUaQd8dqf2ChUbsBYakxO5xDqgBeJx6_sIVYLBdldd0GpqrQ2CZPBrDXSwO1u-aVL_XNqb1XaPQjdhcyefTnyhtnM"/>
+                        <img alt="Myat Theingi Kyaw portrait" class="h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-110" src="../Assect/images/team/myatcv.jpg"/>
                     </div>
-                    <h3 class="text-headline-md font-headline-md text-on-surface">David Mint</h3>
-                    <p class="text-label-md font-label-md text-secondary">Director of Magic</p>
+                    <h3 class="text-headline-md font-headline-md text-on-surface">Myat Theingi Kyaw</h3>
+                    <p class="text-label-md font-label-md text-secondary">Founder Developer</p>
                 </article>
 
-                <article class="about-reveal group text-center">
-                    <div class="mb-5 aspect-square overflow-hidden rounded-full border-4 border-white soft-shadow transition-colors duration-300 group-hover:border-tertiary-container">
-                        <img alt="Elena Gold portrait" class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB7tsUhEN1VHfK8-Wx2DPW2jqp36SrbUZBvDfm6Jxtr5I78rfM7Olb3LidoYXgxHE-fETfaopZVY9NhPhQVzzNTjkHVLTcU5gtI_0VsfJEDOtFTzwxWjAnMBjRLMtjIMBj-w4ZUdHrZDSXKGug33IKhbPx1mVqkLe50AILJ-z-Ary4BVt1r_2VUGWwUfj-IakC3i34C0MWW6YBlrMHWeahFpWdM5mlyixm4XPF-mro3e5fkqT3c71IFl5mapNAAr75DfEoiZqFRSB8"/>
-                    </div>
-                    <h3 class="text-headline-md font-headline-md text-on-surface">Elena Gold</h3>
-                    <p class="text-label-md font-label-md text-on-tertiary-container">Head of Sparkle</p>
-                </article>
-
-                <article class="about-reveal group text-center">
-                    <div class="mb-5 aspect-square overflow-hidden rounded-full border-4 border-white soft-shadow transition-colors duration-300 group-hover:border-primary-fixed">
-                        <img alt="Leo Pastel portrait" class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAYWcnzpRl9xq8fCozTPbbNgdtEAnoKMj1s58war2oz-PPZsdUQcCFcV4rRsdPP5kA8PMJQenyGscYpOF0DQnanb4QD3mmqDmgtWsKCaUwyc6hVcF6OD9ezpvnTZALeqfP65NbBqlhb5FfOHoUJkU5TErRmJAQcPSzxfQYz7NCvdiMOp_EnzKsoJIRF8Nue9MVKnyczgEqhYAwcVdS56RjA_B2mHTUwBfaQYH-Ndo4Izl7Xhquuz6PoPGcGT2UbYgPw_69ZOzr91Fc"/>
-                    </div>
-                    <h3 class="text-headline-md font-headline-md text-on-surface">Leo Pastel</h3>
-                    <p class="text-label-md font-label-md text-on-primary-fixed-variant">Happiness Architect</p>
-                </article>
+                
             </div>
         </div>
     </section>
