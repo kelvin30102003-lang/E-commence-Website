@@ -132,6 +132,15 @@ function admin_material_symbols_href(): string
 
 function admin_render_critical_css(): void
 {
+    $tailwindPath = __DIR__ . '/../../Assect/js/tailwindcss-local.js';
+    $tailwindVersion = is_file($tailwindPath) ? (string)filemtime($tailwindPath) : '1';
+
+    echo '<script>';
+    echo 'tailwind={config:{darkMode:"class",theme:{extend:{colors:{';
+    echo '"secondary-fixed":"#b2f2bb","background":"#fbf9f8","on-secondary-container":"#357044","on-secondary-fixed-variant":"#145129","secondary":"#2f6a3f","inverse-on-surface":"#f2f0f0","outline":"#817476","on-tertiary":"#ffffff","on-surface":"#1b1c1c","surface-tint":"#78555e","on-primary-fixed":"#2d141c","error":"#ba1a1a","tertiary-container":"#e9ddab","surface-dim":"#dbd9d9","on-primary-fixed-variant":"#5e3e47","secondary-container":"#b2f2bb","on-tertiary-fixed":"#211c00","surface-container-lowest":"#ffffff","on-secondary":"#ffffff","on-error":"#ffffff","tertiary-fixed":"#efe3b0","surface-container-highest":"#e4e2e2","on-primary-container":"#7a5761","primary-fixed":"#ffd9e2","surface-container-low":"#f5f3f3","surface-bright":"#fbf9f8","tertiary-fixed-dim":"#d2c796","tertiary":"#665f36","on-primary":"#ffffff","on-tertiary-fixed-variant":"#4e4721","error-container":"#ffdad6","surface-variant":"#e4e2e2","inverse-surface":"#303030","on-tertiary-container":"#696139","on-surface-variant":"#4f4446","inverse-primary":"#e7bbc6","primary-container":"#ffd1dc","surface":"#fbf9f8","outline-variant":"#d3c3c5","on-error-container":"#93000a","surface-container":"#efeded","secondary-fixed-dim":"#96d5a0","primary-fixed-dim":"#e7bbc6","on-secondary-fixed":"#00210b","surface-container-high":"#eae8e7","primary":"#78555e","on-background":"#1b1c1c"';
+    echo '},borderRadius:{DEFAULT:"1rem",lg:"2rem",xl:"3rem",full:"9999px"},spacing:{unit:"4px","margin-mobile":"20px","margin-desktop":"80px",xs:"4px",sm:"8px",md:"16px",lg:"24px",gutter:"16px",xl:"48px"},fontFamily:{"headline-md":["Quicksand"],"headline-lg":["Quicksand"],"body-lg":["Plus Jakarta Sans"],"body-md":["Plus Jakarta Sans"],"headline-lg-mobile":["Quicksand"],"display-lg":["Quicksand"],"label-sm":["Plus Jakarta Sans"],"label-md":["Plus Jakarta Sans"]},fontSize:{"headline-md":["24px",{lineHeight:"32px",fontWeight:"600"}],"headline-lg":["32px",{lineHeight:"40px",fontWeight:"700"}],"body-lg":["18px",{lineHeight:"28px",fontWeight:"400"}],"body-md":["16px",{lineHeight:"24px",fontWeight:"400"}],"headline-lg-mobile":["24px",{lineHeight:"32px",fontWeight:"700"}],"display-lg":["48px",{lineHeight:"56px",letterSpacing:"0",fontWeight:"700"}],"label-sm":["12px",{lineHeight:"16px",fontWeight:"700"}],"label-md":["14px",{lineHeight:"20px",letterSpacing:"0",fontWeight:"600"}]}}}}};';
+    echo '</script>';
+    echo '<script src="../Assect/js/tailwindcss-local.js?v=' . admin_html($tailwindVersion) . '"></script>';
     echo '<style id="admin-critical-css">';
     echo 'html{background:#fbf9f8;}';
     echo 'body{margin:0;min-height:100vh;background:#fbf9f8;color:#1b1c1c;font-family:"Plus Jakarta Sans","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}';
