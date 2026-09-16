@@ -27,9 +27,15 @@ Stack update completed for backend migration:
 
 ## Web Routes
 
-- `/` home page
-- `/shop` shop page
-- `/contact` contact page
+- `/` home page, served by Laravel through the legacy UI bridge
+- `/shop` shop page, served by Laravel through the legacy UI bridge
+- `/contact` contact page, served by Laravel through the legacy UI bridge
+- `/about`, `/cart`, `/checkout`, `/payment`, `/profile`, `/track`
+- Legacy-compatible aliases such as `/Home.php`, `/shop.php`, `/Users/shop.php`, `/Auth/login.php`, and `/Admin/adminDashboard.php`
+
+The Laravel bridge preserves the current plain-PHP UI and relative links while Laravel owns routing. Existing assets remain in `Assect/` and `uploads/` and are served through Laravel routes during the migration.
+
+> Local note: Laravel 12 requires PHP 8.2 or newer. The bundled XAMPP PHP in some setups may be PHP 8.0 and cannot run `php artisan`.
 
 ## Firebase Auth Setup (Legacy PHP Frontend)
 

@@ -337,8 +337,8 @@ admin_render_sidebar($admin, 'products');
                                 $priceLabel = $product['min_price'] === null
                                     ? '--'
                                     : (((float)$product['min_price'] === (float)$product['max_price'])
-                                        ? '$' . number_format((float)$product['min_price'], 2)
-                                        : '$' . number_format((float)$product['min_price'], 2) . ' - $' . number_format((float)$product['max_price'], 2));
+                                        ? 'Ks' . number_format((float)$product['min_price'], 2)
+                                        : 'Ks' . number_format((float)$product['min_price'], 2) . ' - Ks' . number_format((float)$product['max_price'], 2));
                                 $stockQty = (int)$product['stock_total'];
                                 $stockPercent = max(3, min(100, (int)round(($stockQty / max(1, (int)$product['stock_target'])) * 100)));
                             ?>
